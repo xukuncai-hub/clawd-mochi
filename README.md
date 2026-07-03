@@ -27,12 +27,55 @@ Support the project on Instagram: [![Instagram](https://img.shields.io/badge/Ins
 
 ## What it does
 
-Clawd Mochi sits on your desk and shows animated expressions on a small color display. You control it from any phone or browser by connecting to its built-in WiFi hotspot:
+Clawd Mochi sits on your desk and shows animated expressions on a small color display. You control it from any phone or browser by connecting to its built-in WiFi hotspot. No app, no internet, no cloud required.
 
-- **Normal eyes** — pixel-art square eyes with wiggle and blink animations
-- **Squish eyes** — `> <` happy squint with open/close animation
-- **Claude Code** — displays "Claude Code" with an interactive terminal
-- **Canvas** — draw anything on the display from your phone in real time
+### 😊 13 Animated Expressions
+
+| Expression | Description |
+|-----------|-------------|
+| **Normal** 👀 | Wiggle + blink animation |
+| **Happy** 😊 | `> <` squint with open/close |
+| **Angry** 😠 | Slanted brows, narrowed pupils + shake |
+| **Heart** 💗 | Pulsing heart eyes |
+| **Dizzy** 😵 | X eyes → spiral animation |
+| **Sleepy** 😴 | Droopy half-closed slits |
+| **Wow** 😲 | Wide eyes with small pupils |
+| **Wink** 😉 | Alternating left/right wink |
+| **Cry** 😢 | Pleading pupils + blue tear drops |
+| **Star** ⭐ | Sparkle cross with flash effect |
+| **Shy** 😊 | Sideways glance + pink blush |
+| **Puppy** 🐶 | Big shiny pleading eyes |
+| **Logo** ⭐ | Anthropic logo reveal animation |
+
+### 🕐 Clock & Weather
+
+- **Digital clock** — large time display with date, weather summary, and city name
+- **Analog clock** — classic clock face with hour/minute/second hands, smooth sweep
+- **Weather view** — temperature, humidity, wind speed, weather condition from Open-Meteo API
+- **Auto time sync** — NTP time sync via home WiFi (optional STA mode)
+- **Location** — manual lat/lon, city geocoding, or IP auto-detect
+
+### ⏰ Alarms & Timer
+
+- **Up to 8 alarms** — set hour/minute, enable/disable, configurable ring duration (5s–5min)
+- **Countdown timer** — hours:minutes:seconds, progress bar, start/pause/reset
+- **Buzzer support** — connect to GPIO 6 for alarm/timer sound
+
+### 🎨 Other Features
+
+- **Dance animation** — plays the classic b4.gif dance loop on screen
+- **Auto-switch mode** — cycles through expressions or info views automatically
+- **Terminal** — interactive terminal on the TFT, type from the web controller
+- **Canvas** — draw on the display from your phone in real time, 240×240 resolution
+- **Animation speed** — slow / normal / fast (3 levels)
+- **Custom background color** — any hex color via web color picker
+- **Backlight toggle** — turn display on/off remotely
+
+### 🌐 WiFi Modes
+
+- **AP mode** (default) — creates its own WiFi hotspot `ClaWD-Mochi`, connect directly
+- **STA mode** (optional) — connects to your home WiFi for internet access (NTP + weather)
+- **Dual mode** — AP always available, STA connects in background
 
 ---
 
@@ -127,19 +170,75 @@ You should see the web controller:
 
 <img src="pics/clawd_mochi_webpage.jpeg" alt="Webpage view" width="500"/>
 
+### Optional: Connect to home WiFi (for clock + weather)
+
+To get automatic time sync and live weather, configure your home WiFi in `clawd_mochi.ino`:
+
+```cpp
+const char* STA_SSID = "YourWiFiName";    // your home WiFi
+const char* STA_PASS = "YourPassword";    // your WiFi password
+```
+
+And set your location:
+
+```cpp
+#define MY_LAT          30.19     // your latitude
+#define MY_LON          105.84    // your longitude
+#define MY_CITY_NAME    "Chongqing"  // displayed on screen
+#define MY_TZ_OFFSET    8         // UTC offset (China=8, Japan=9, UK=0, US/East=-5)
+```
+
+Leave `MY_LAT` at `0` to auto-detect location via IP geolocation, or set `MY_CITY` to a city name for geocoding.
+
 ### Controller features
 
-| Button / control   | What it does                                    |
-| ------------------ | ----------------------------------------------- |
-| Normal eyes        | Plays wiggle + blink animation                  |
-| Squish eyes        | Plays open/close animation                      |
-| Claude Code        | Shows code display, opens terminal              |
-| Canvas             | Enter drawing mode — draw on display from phone |
-| Speed slider       | Controls animation speed (slow / normal / fast) |
-| Background color   | Changes background color of all views           |
-| Pen color          | Sets drawing color for canvas                   |
-| Display on/off     | Toggles the backlight                           |
-| ✓ done (in canvas) | Exits canvas mode                               |
+**TFT Display section:**
+| Button | What it does |
+|--------|-------------|
+| Clock | Switch to digital clock view with time, date, weather |
+| Analog | Switch to analog clock face |
+| Weather | Switch to full weather view (temp, humidity, wind) |
+| Terminal | Open interactive terminal mode |
+| Timer | Switch to countdown timer view |
+| Dance | Play the b4.gif dance animation loop |
+
+**Eyes section:**
+| Control | What it does |
+|---------|-------------|
+| 13 expression tiles | Tap any tile to play its animation instantly |
+| Background color | Color picker — changes background of all views |
+| Speed buttons | Slow / Normal / Fast — controls animation playback speed |
+
+**Auto Switch section:**
+| Control | What it does |
+|---------|-------------|
+| Faces mode | Auto-cycles through all 12 expressions |
+| Info mode | Auto-cycles through clock, analog, weather |
+| Interval slider | Set switch interval (1.5s – 30s) |
+
+**Alarms section:**
+| Control | What it does |
+|---------|-------------|
+| Hour / Minute selects | Set alarm time per slot |
+| ON/OFF button | Enable or disable each alarm |
+| Duration select | Ring duration (5s – 5min) |
+| + Add Alarm | Add a new alarm slot (up to 8) |
+| × Delete | Remove an alarm slot |
+
+**Timer section:**
+| Control | What it does |
+|---------|-------------|
+| H / M / S inputs | Set countdown duration |
+| Start / Pause / Reset | Control the timer |
+| Buzz duration | Set alarm sound length when timer ends |
+| Apply | Push settings to device |
+
+**Advanced section:**
+| Control | What it does |
+|---------|-------------|
+| Terminal | Type commands and see output on the TFT display |
+| Canvas | 240×240 drawing surface — draw with mouse or touch |
+| Clear / Open Canvas | Manage the drawing canvas |
 
 ---
 
@@ -194,10 +293,26 @@ You can also download the models from MakerWorld: [https://makerworld.com/en/mod
 
 ## Customisation
 
+All configuration constants are near the top of `clawd_mochi/clawd_mochi.ino`:
+
+### WiFi & Connectivity
+```cpp
+const char* AP_SSID = "ClaWD-Mochi";   // WiFi hotspot name
+const char* AP_PASS = "clawd1234";     // WiFi hotspot password
+const char* STA_SSID = "";             // home WiFi name (optional)
+const char* STA_PASS = "";             // home WiFi password (optional)
+```
+
+### Location & Weather
+```cpp
+#define MY_LAT          30.19     // your latitude (0 = auto-detect)
+#define MY_LON          105.84    // your longitude (0 = auto-detect)
+#define MY_CITY_NAME    "Chongqing"  // displayed on screen
+#define MY_CITY         ""        // city name for geocoding (only when MY_LAT=0)
+#define MY_TZ_OFFSET    8         // UTC offset: China=8, Japan=9, UK=0, US/East=-5
+```
+
 ### Eye size and position
-
-Edit these constants near the top of `clawd_mochi.ino`:
-
 ```cpp
 #define EYE_W   30    // eye width in pixels
 #define EYE_H   60    // eye height in pixels
@@ -206,14 +321,10 @@ Edit these constants near the top of `clawd_mochi.ino`:
 #define EYE_OY  40    // vertical offset upward
 ```
 
-### Logo animation duration
-
+### Buzzer
+Connect a passive buzzer to GPIO 6 for alarm and timer sounds:
 ```cpp
-// In animLogoReveal() — how long logo holds after animation
-delay(1500);       // milliseconds — change this number
-
-// Speed of the reveal drawing stroke by stroke
-delay(speedMs(8)); // lower = faster
+#define BUZZER  6     // buzzer pin (GPIO 6, safe during boot)
 ```
 
 ---
