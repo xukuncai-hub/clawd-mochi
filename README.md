@@ -129,10 +129,11 @@ Download [Arduino IDE 2.x](https://www.arduino.cc/en/software) and install it.
 
 ### Step 3 — Install libraries
 
-Go to **Tools → Library Manager** and install both:
+Go to **Tools → Library Manager** and install:
 
 - `Adafruit GFX Library`
 - `Adafruit ST7735 and ST7789 Library`
+- `WebSockets` by Markus Sattler
 
 ### Step 4 — Configure board settings
 
@@ -189,6 +190,23 @@ And set your location:
 ```
 
 Leave `MY_LAT` at `0` to auto-detect location via IP geolocation, or set `MY_CITY` to a city name for geocoding.
+
+### OTA wireless updates
+
+Once flashed via USB, you can update firmware over WiFi without opening the case:
+
+1. In Arduino IDE, wait for the device to appear under **Tools → Port → Network Ports** as `clawd-mochi.local`
+2. Select it and click Upload as usual
+3. Password: `clawd1234`
+4. The display shows a progress bar during update
+
+If the device is in AP-only mode (no home WiFi), connect your computer to the `ClaWD-Mochi` WiFi network first — OTA still works at `192.168.4.1`.
+
+### WebSocket real-time updates
+
+The web controller uses WebSocket (port 81) for instant state updates — no polling delay. If WebSocket is unavailable (older browser, firewall), the client automatically falls back to HTTP polling every 15 seconds.
+
+Settings persist across power cycles (saved to flash via ESP32 NVS).
 
 ### Controller features
 

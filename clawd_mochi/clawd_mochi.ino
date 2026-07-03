@@ -24,6 +24,9 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <HTTPClient.h>
+#include <Preferences.h>
+#include <ArduinoOTA.h>
+#include <WebSocketsServer.h>
 #include "dance_frames.h"
 
 // ── Pins ──────────────────────────────────────────────────────
@@ -49,6 +52,8 @@ const char* STA_PASS = "123456789";
 String staIP = "";   // set at runtime if STA connects
 
 WebServer server(80);
+WebSocketsServer wsServer(81);
+Preferences prefs;
 
 // ── Display ───────────────────────────────────────────────────
 #define DISP_W 240
@@ -140,6 +145,10 @@ uint8_t  autoSwitchMode = 0;
 uint32_t autoSwitchInterval = 5000;
 uint32_t lastAutoSwitch = 0;
 uint8_t  autoSwitchIdx  = 0;
+
+// ── Idle blink ────────────────────────────────────────────────
+uint32_t lastIdleBlink = 0;
+uint32_t idleBlinkNext = 0;  // randomised each blink
 
 // Auto-switch groups
 const uint8_t AUTO_EXPR[] PROGMEM = {
@@ -381,6 +390,15 @@ uint16_t hexToRgb565(String hex) {
 // Print Chinese text at (x, y_baseline).  Caller must clear the bg area first.
 
 // Quick transition flash (50ms black) for smoother view switching
+void transitionFlash() {
+  tft.fillScreen(C_BLACK);
+  delay(50);
+}
+
+// Check if a view is an eye-expression (supports idle blink)
+bool isEyeView(uint8_t v) {
+  return (v >= VIEW_EYES_NORMAL && v <= VIEW_EYES_PUPPY) || v == VIEW_WINK;
+}
 
 void setBacklight(bool on) {
   backlightOn = on;
@@ -395,6 +413,62 @@ void initColours() {
   C_GREEN  = tft.color565(80, 220, 130);
   animBgColor = C_ORANGE;
   drawBgColor = C_ORANGE;
+}
+
+// ── Preferences (NVS) ────────────────────────────────────────
+// Save + broadcast to WebSocket clients in one call
+void notifyChanged() {
+  savePreferences();
+  wsBroadcastState();
+}
+
+void savePreferences() {
+  prefs.begin("clawd", false);  // read-write
+  prefs.putUChar("spd", animSpeed);
+  prefs.putUShort("bg",  animBgColor);
+  prefs.putUShort("drbg", drawBgColor);
+  prefs.putUChar("bl",  backlightOn ? 1 : 0);
+  prefs.putUChar("view", currentView);
+  prefs.putUChar("auto", autoSwitch ? 1 : 0);
+  prefs.putUChar("aMode", autoSwitchMode);
+  prefs.putUInt("aInt", autoSwitchInterval);
+  prefs.putUChar("aCnt", alarmCount);
+  for (uint8_t i = 0; i < alarmCount; i++) {
+    char k[8];
+    snprintf(k, sizeof(k), "ah%d", i); prefs.putUChar(k, alarms[i].hour);
+    snprintf(k, sizeof(k), "am%d", i); prefs.putUChar(k, alarms[i].min);
+    snprintf(k, sizeof(k), "ae%d", i); prefs.putUChar(k, alarms[i].enabled ? 1 : 0);
+    snprintf(k, sizeof(k), "ad%d", i); prefs.putUShort(k, alarms[i].duration);
+  }
+  prefs.putUInt("tTot", timer.totalSec);
+  prefs.putUInt("tBuzz", timer.buzzDuration);
+  prefs.end();
+}
+
+void loadPreferences() {
+  prefs.begin("clawd", true);  // read-only
+  animSpeed          = prefs.getUChar("spd", animSpeed);
+  animBgColor        = prefs.getUShort("bg", animBgColor);
+  drawBgColor        = prefs.getUShort("drbg", drawBgColor);
+  backlightOn        = prefs.getUChar("bl", 1);
+  currentView        = prefs.getUChar("view", currentView);
+  autoSwitch         = prefs.getUChar("auto", 0);
+  autoSwitchMode     = prefs.getUChar("aMode", 0);
+  autoSwitchInterval = prefs.getUInt("aInt", 5000);
+  alarmCount         = prefs.getUChar("aCnt", alarmCount);
+  if (alarmCount > MAX_ALARMS) alarmCount = MAX_ALARMS;
+  for (uint8_t i = 0; i < alarmCount; i++) {
+    char k[8];
+    snprintf(k, sizeof(k), "ah%d", i); alarms[i].hour     = prefs.getUChar(k, alarms[i].hour);
+    snprintf(k, sizeof(k), "am%d", i); alarms[i].min      = prefs.getUChar(k, alarms[i].min);
+    snprintf(k, sizeof(k), "ae%d", i); alarms[i].enabled  = prefs.getUChar(k, 0);
+    snprintf(k, sizeof(k), "ad%d", i); alarms[i].duration = prefs.getUShort(k, 30);
+  }
+  timer.totalSec     = prefs.getUInt("tTot", 0);
+  timer.remaining    = timer.totalSec;
+  timer.buzzDuration = prefs.getUInt("tBuzz", 10);
+  prefs.end();
+  setBacklight(backlightOn);
 }
 
 // ── Weather helpers ──────────────────────────────────────────
@@ -1421,7 +1495,7 @@ void animDance() {
     }
   }
   // Dance exited — clear and draw the new view
-  tft.fillScreen(C_BLACK);
+  transitionFlash();
   switch (currentView) {
     case VIEW_EYES_NORMAL:    drawNormalEyes();    break;
     case VIEW_EYES_SQUISH:    drawSquishEyes();    break;
@@ -1465,6 +1539,33 @@ void animAlarm() {
   clockDirty = true;
   drawAlarm();
   busy = false;
+}
+
+// ── Idle blink — quick natural blink when sitting on an eye view ──
+void idleBlink() {
+  const int16_t lx = eyeLX(0), rx = eyeRX(0), ey = eyeY(), cy = eyeCY();
+  // Close eyes briefly
+  tft.fillRect(lx, cy - 4, EYE_W, 8, C_BLACK);
+  tft.fillRect(rx, cy - 4, EYE_W, 8, C_BLACK);
+  safeDelay(speedMs(80));
+  // Restore current expression
+  switch (currentView) {
+    case VIEW_EYES_NORMAL:    drawNormalEyes();    break;
+    case VIEW_EYES_SQUISH:    drawSquishEyes();    break;
+    case VIEW_EYES_ANGRY:     drawAngryEyes();     break;
+    case VIEW_EYES_HEART:     drawHeartEyes();     break;
+    case VIEW_EYES_DIZZY:     drawDizzyEyes();     break;
+    case VIEW_EYES_SLEEPY:    drawSleepyEyes();    break;
+    case VIEW_EYES_SURPRISED: drawSurprisedEyes(); break;
+    case VIEW_WINK:           drawWink();          break;
+    case VIEW_EYES_CRY:       drawCryEyes();       break;
+    case VIEW_EYES_STAR:      drawStarEyes();      break;
+    case VIEW_EYES_SHY:       drawShyEyes();       break;
+    case VIEW_EYES_PUPPY:     drawPuppyEyes();     break;
+    default: break;
+  }
+  lastIdleBlink = millis();
+  idleBlinkNext = (esp_random() % 5000) + 3000;  // 3–8 seconds
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -1827,42 +1928,85 @@ cvs.addEventListener('touchend',endDraw);
 function toggleCanvas(){canvasOpen=!canvasOpen;const b=document.getElementById('canvasToggleBtn');b.textContent=canvasOpen?'Close Canvas':'Open Canvas';b.classList.toggle('on',canvasOpen);if(canvasOpen){ctx.fillStyle='#18181f';ctx.fillRect(0,0,cvs.width,cvs.height);toast('Canvas ready')}}
 function clearCanvas(){ctx.fillStyle='#18181f';ctx.fillRect(0,0,cvs.width,cvs.height);toast('Cleared')}
 
+// === Handle state update (from WebSocket or HTTP fallback) ===
+function handleStateUpdate(j){
+  if(j.speed!==undefined){
+    curSpeed=j.speed;
+    document.querySelectorAll('.spd-btn').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.spd)===j.speed));
+  }
+  if(j.bl!==undefined){
+    blOn=j.bl;const b=document.getElementById('blBtn');
+    b.textContent=j.bl?'Screen ON':'Screen OFF';b.classList.toggle('on',j.bl);
+  }
+  if(j.auto!==undefined){
+    autoOn=j.auto;const b=document.getElementById('autoBtn');
+    b.textContent=j.auto?'Auto ON':'Auto OFF';b.classList.toggle('on',j.auto);
+  }
+  if(j.autoMode!==undefined){
+    document.querySelectorAll('#autoModeRow .btn').forEach((b,i)=>b.classList.toggle('on',i===j.autoMode));
+  }
+  if(j.autoInt){
+    document.getElementById('autoInt').value=j.autoInt;
+    document.getElementById('autoIntV').textContent=Math.round(j.autoInt/100)/10+'s';
+  }
+  if(j.alarms&&j.alarms.length){
+    const changed=JSON.stringify(j.alarms)!==JSON.stringify(alarmData.map(a=>({h:a.h,m:a.m,on:a.on,dur:a.dur})));
+    if(changed){alarmData=j.alarms;renderAlarms();}
+  }
+  if(j.timer){
+    const d=document.getElementById('timerDisp');
+    if(j.timer.total>0){
+      const h=Math.floor(j.timer.remaining/3600),m=Math.floor((j.timer.remaining%3600)/60),s=j.timer.remaining%60;
+      d.textContent=j.timer.total>=3600?(pad(h)+':'+pad(m)+':'+pad(s)):(pad(m)+':'+pad(s));
+    }else{d.textContent='00:00'}
+    if(!j.timer.running&&j.timer.remaining===0)stopTimerPoll();
+    document.getElementById('tBuzz').value=j.timer.buzz||10;
+  }
+  deviceBusy=j.busy;document.getElementById('busy').classList.toggle('show',j.busy);
+}
+
 // === Init ===
 (async()=>{
   buildAlarmRows();
+  // Bootstrap: fetch state once via HTTP before WebSocket connects
   try{
     const r=await fetch('/state');const j=await r.json();
-    if(j.speed){curSpeed=j.speed;document.querySelectorAll('.spd-btn').forEach(b=>b.classList.toggle('active',b.dataset.spd==j.speed))}
-    if(j.bl===false){blOn=false;const b=document.getElementById('blBtn');b.textContent='Screen OFF';b.classList.remove('on')}
-    if(j.auto===true){autoOn=true;const b=document.getElementById('autoBtn');b.textContent='Auto ON';b.classList.add('on')}
-    if(j.autoMode!==undefined){document.querySelectorAll('#autoModeRow .btn').forEach((b,i)=>b.classList.toggle('on',i===j.autoMode))}
-    document.getElementById('autoInt').value=j.autoInt||5000;
-    document.getElementById('autoIntV').textContent=Math.round((j.autoInt||5000)/100)/10+'s';
-    if(j.alarms&&j.alarms.length){
-      alarmData=j.alarms;renderAlarms();
-    }
-    if(j.timer){
-      document.getElementById('tBuzz').value=j.timer.buzz||10;
-      timerPoll();if(j.timer.running)startTimerPoll();
-    }
+    handleStateUpdate(j);
+    if(j.timer&&j.timer.running)startTimerPoll();
   }catch(e){}
   ctx.fillStyle='#18181f';ctx.fillRect(0,0,cvs.width,cvs.height);
-  // Lightweight ping for connection, heavy /state for busy
-  let connFail=0;
+
+  // Connection status
+  let connFail=0,wsPollInterval=null;
   const updateConn=(ok,busy)=>{
     const d=document.getElementById('connDot'),t=document.getElementById('connText');
-    if(ok){connFail=0;d.style.background='var(--gn)';t.textContent=busy?'Busy':'Ready'}
+    if(ok){connFail=0;d.style.background='var(--gn)';t.textContent=busy?'Busy':'Live'}
     else{connFail++;d.style.background=connFail>4?'var(--or)':'#e8b830';t.textContent=connFail>4?'Offline':'Slow'}
   };
-  setInterval(async()=>{
-    try{const r=await fetch('/ip');await r.json();updateConn(true,deviceBusy)}catch(e){updateConn(false)}
-  },5000);
-  setInterval(async()=>{
-    try{const r=await fetch('/state');const j=await r.json();
-      deviceBusy=j.busy;document.getElementById('busy').classList.toggle('show',deviceBusy);
-      updateConn(true,deviceBusy);
-    }catch(e){}
-  },10000);
+
+  // Start HTTP fallback polling
+  function startHttpPolling(){
+    if(wsPollInterval)return;
+    wsPollInterval=setInterval(async()=>{
+      try{const r=await fetch('/state');const j=await r.json();handleStateUpdate(j);updateConn(true,j.busy)}catch(e){updateConn(false)}
+    },15000);
+  }
+  function stopHttpPolling(){
+    if(wsPollInterval){clearInterval(wsPollInterval);wsPollInterval=null}
+  }
+
+  // WebSocket connection
+  function wsConnect(){
+    const proto=location.protocol==='https:'?'wss:':'ws:';
+    const ws=new WebSocket(proto+'//'+location.hostname+':81/');
+    ws.onopen=()=>{updateConn(true,deviceBusy);stopHttpPolling()};
+    ws.onmessage=(e)=>{
+      try{const j=JSON.parse(e.data);handleStateUpdate(j);updateConn(true,j.busy)}catch(err){}
+    };
+    ws.onclose=()=>{updateConn(false);startHttpPolling();setTimeout(wsConnect,3000)};
+    ws.onerror=()=>{ws.close()};
+  }
+  wsConnect();
 })();
 </script>
 </body>
@@ -1917,6 +2061,9 @@ void routeCmd() {
     case 'T': currentView = VIEW_TIMER;          break;
     case 'j': currentView = VIEW_DANCE;          break;
   }
+  notifyChanged();  // persist currentView
+  idleBlinkNext = 0;   // reset idle blink timer on manual switch
+  transitionFlash();
   // Run animation for the new view (unless dance, which loops itself)
   switch (currentView) {
     case VIEW_EYES_NORMAL:    animNormalEyes();    break;
@@ -1949,6 +2096,7 @@ void routeChar() {
 
 void routeSpeed() {
   if (server.hasArg("v")) animSpeed = constrain(server.arg("v").toInt(), 1, 3);
+  notifyChanged();
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
@@ -1980,6 +2128,7 @@ void routeRedraw() {
     case VIEW_DANCE:          drawDance();         break;
     case VIEW_ALARM:          drawAlarm();         break;
   }
+  notifyChanged();
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
@@ -2033,6 +2182,7 @@ void routeDrawStroke() {
 
 void routeBacklight() {
   setBacklight(server.hasArg("on") && server.arg("on") == "1");
+  notifyChanged();
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
@@ -2083,6 +2233,7 @@ void routeAuto() {
     lastAutoSwitch = millis();
     autoSwitchIdx = 0;
   }
+  notifyChanged();
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
@@ -2090,6 +2241,7 @@ void routeAutoInterval() {
   if (server.hasArg("v")) {
     autoSwitchInterval = constrain(server.arg("v").toInt(), 1500L, 30000L);
   }
+  notifyChanged();
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
@@ -2098,6 +2250,7 @@ void routeAutoMode() {
     autoSwitchMode = constrain(server.arg("v").toInt(), 0, 1);
     autoSwitchIdx = 0;
   }
+  notifyChanged();
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
@@ -2129,6 +2282,7 @@ void routeAlarmSet() {
       drawClockDigital();
     }
   }
+  notifyChanged();
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
@@ -2138,6 +2292,7 @@ void routeAlarmAdd() {
   }
   alarms[alarmCount] = {0, 0, false, 30};
   alarmCount++;
+  notifyChanged();
   server.send(200, "application/json", ("{\"ok\":1,\"count\":" + String(alarmCount) + "}"));
 }
 
@@ -2156,6 +2311,7 @@ void routeAlarmDel() {
   }
   alarmCount--;
   if (activeAlarmIdx > id) activeAlarmIdx--;
+  notifyChanged();
   server.send(200, "application/json", ("{\"ok\":1,\"count\":" + String(alarmCount) + "}"));
 }
 
@@ -2170,6 +2326,7 @@ void routeTimerSet() {
   timer.lastTick  = millis();
   if (server.hasArg("buzz")) timer.buzzDuration = constrain(server.arg("buzz").toInt(), 1, 120);
   if (currentView == VIEW_TIMER) drawTimer();
+  notifyChanged();
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
@@ -2179,12 +2336,14 @@ void routeTimerStart() {
     timer.lastTick = millis();
     if (currentView == VIEW_TIMER) drawTimer();
   }
+  notifyChanged();
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
 void routeTimerPause() {
   timer.running = false;
   if (currentView == VIEW_TIMER) drawTimer();
+  notifyChanged();
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
@@ -2192,6 +2351,7 @@ void routeTimerReset() {
   timer.remaining = timer.totalSec;
   timer.running   = false;
   if (currentView == VIEW_TIMER) drawTimer();
+  notifyChanged();
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
@@ -2218,6 +2378,44 @@ void routeIP() {
 }
 
 void routeNotFound() { server.send(404, "text/plain", "not found"); }
+
+// ═════════════════════════════════════════════════════════════
+//  WebSocket
+// ═════════════════════════════════════════════════════════════
+
+void wsBroadcastState() {
+  String j = "{\"view\":"; j += currentView;
+  j += ",\"busy\":";   j += busy        ? "true" : "false";
+  j += ",\"term\":";   j += termMode    ? "true" : "false";
+  j += ",\"bl\":";     j += backlightOn ? "true" : "false";
+  j += ",\"speed\":";  j += animSpeed;
+  j += ",\"auto\":";   j += autoSwitch  ? "true" : "false";
+  j += ",\"autoMode\":"; j += autoSwitchMode;
+  j += ",\"autoInt\":";  j += autoSwitchInterval;
+  j += ",\"alarms\":[";
+  for (uint8_t i = 0; i < alarmCount; i++) {
+    if (i > 0) j += ",";
+    j += "{\"h\":"; j += alarms[i].hour;
+    j += ",\"m\":"; j += alarms[i].min;
+    j += ",\"on\":"; j += (alarms[i].enabled ? "true" : "false");
+    j += ",\"dur\":"; j += alarms[i].duration;
+    j += "}";
+  }
+  j += "],\"timer\":{";
+  j += "\"total\":"; j += timer.totalSec;
+  j += ",\"remaining\":"; j += timer.remaining;
+  j += ",\"running\":"; j += (timer.running ? "true" : "false");
+  j += ",\"buzz\":"; j += timer.buzzDuration;
+  j += "}}";
+  wsServer.broadcastTXT(j);
+}
+
+void wsEventHandler(uint8_t num, WStype_t type, uint8_t *payload, size_t len) {
+  if (type == WStype_CONNECTED) {
+    wsBroadcastState();  // send current state to newly connected client
+  }
+  // ignore other events for now
+}
 
 // ═════════════════════════════════════════════════════════════
 //  SETUP
@@ -2280,6 +2478,37 @@ void setup() {
   server.on("/ip",           HTTP_GET, routeIP);
   server.onNotFound(routeNotFound);
   server.begin();
+  wsServer.begin();
+  wsServer.onEvent(wsEventHandler);
+
+  // ── OTA setup ──────────────────────────────────────────────
+  ArduinoOTA.setHostname("clawd-mochi");
+  ArduinoOTA.setPassword("clawd1234");
+  ArduinoOTA.onStart([]() {
+    busy = true; termMode = false; alarmRinging = false;
+    pinMode(BUZZER, INPUT);
+    tft.fillScreen(C_BLACK);
+    tft.setTextColor(C_WHITE); tft.setTextSize(2);
+    tft.setCursor(30, DISP_H / 2 - 12); tft.print("OTA Update...");
+  });
+  ArduinoOTA.onEnd([]() {
+    tft.fillScreen(C_BLACK);
+    tft.setTextColor(C_GREEN); tft.setTextSize(2);
+    tft.setCursor(40, DISP_H / 2 - 12); tft.print("Done!");
+  });
+  ArduinoOTA.onProgress([](unsigned int p, unsigned int t) {
+    int pct = (p * 100) / t;
+    tft.fillRect(20, DISP_H / 2 + 20, 200, 16, C_BLACK);
+    tft.drawRect(20, DISP_H / 2 + 20, 200, 16, C_WHITE);
+    tft.fillRect(22, DISP_H / 2 + 22, 196 * pct / 100, 12, C_ORANGE);
+  });
+  ArduinoOTA.onError([](ota_error_t e) {
+    tft.setTextColor(C_ORANGE); tft.setTextSize(1);
+    tft.setCursor(20, DISP_H / 2 + 50);
+    tft.print("OTA Err "); tft.print(e);
+    safeDelay(3000);
+  });
+  ArduinoOTA.begin();
 
   // ── Startup animation (server is live — page loads during this!) ──
   animLogoReveal();
@@ -2297,6 +2526,9 @@ void setup() {
   } else {
     configTzTime(wxTz.c_str(), NTP_SERVER);
   }
+
+  // ── Restore saved preferences ────────────────────────────
+  loadPreferences();
 
   // ── WiFi info screen (stays until first web request) ───────
   tft.fillScreen(C_DARKBG);
@@ -2325,6 +2557,8 @@ void setup() {
 // ═════════════════════════════════════════════════════════════
 
 void loop() {
+  ArduinoOTA.handle();
+  wsServer.loop();
   server.handleClient();
 
   // ── Check STA WiFi connection ─────────────────────────────────
@@ -2433,6 +2667,7 @@ void loop() {
       if (timer.remaining > 0) {
         timer.remaining--;
         if (currentView == VIEW_TIMER) drawTimer();
+        wsBroadcastState();  // push timer update to web clients
       }
       if (timer.remaining == 0) {
         timer.running = false;
@@ -2479,6 +2714,7 @@ void loop() {
         autoSwitchIdx = (autoSwitchIdx + 1) % AUTO_INFO_COUNT;
       }
       currentView = nextView;
+      transitionFlash();
       switch (nextView) {
         case VIEW_EYES_NORMAL:    animNormalEyes();    break;
         case VIEW_EYES_SQUISH:    animSquishEyes();    break;
@@ -2496,6 +2732,18 @@ void loop() {
         case VIEW_CLOCK_ANALOG:   animClockAnalog();   break;
         case VIEW_WEATHER:        animWeather();       break;
       }
+    }
+  }
+
+  // ── Idle blink (random natural blinks on eye views) ───────────
+  if (!busy && !termMode && !autoSwitch && isEyeView(currentView)
+      && currentView != VIEW_DANCE) {
+    if (idleBlinkNext == 0) {
+      lastIdleBlink = millis();
+      idleBlinkNext = (esp_random() % 5000) + 3000;
+    }
+    if (millis() - lastIdleBlink >= idleBlinkNext) {
+      idleBlink();
     }
   }
 }
