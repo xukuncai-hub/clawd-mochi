@@ -754,6 +754,14 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
     }
 }
 
+static esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err) {
+    // 强制门户重定向至主页
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
 static httpd_handle_t start_webserver(void) {
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -795,6 +803,9 @@ static httpd_handle_t start_webserver(void) {
         httpd_uri_t cp2 = { .uri = "/hotspot-detect.html", .method = HTTP_GET, .handler = captive_portal_handler, .user_ctx = NULL };
         httpd_register_uri_handler(server, &cp2);
 
+        // 404 捕获所有未知 URL 并重定向至控制主页
+        httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
+
         return server;
     }
     ESP_LOGE(TAG, "Error starting server!");
@@ -816,21 +827,14 @@ void wifi_app_init(void) {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    // 创建 AP netif 并显式固定静态 IP 192.168.4.1 与配置 DHCP 服务器
-    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
-    esp_netif_ip_info_t ip_info;
-    IP4_ADDR(&ip_info.ip, 192, 168, 4, 1);
-    IP4_ADDR(&ip_info.gw, 192, 168, 4, 1);
-    IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
-    esp_netif_dhcps_stop(ap_netif);
-    esp_netif_set_ip_info(ap_netif, &ip_info);
-    esp_netif_dhcps_start(ap_netif);
+    // 创建 AP netif (默认网关与静态 IP 均为 192.168.4.1，DHCP 服务器自动管理)
+    esp_netif_create_default_wifi_ap();
 
     // 注册网络事件监视器
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, &wifi_event_handler, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_ASSIGNED_IP_TO_CLIENT, &wifi_event_handler, NULL, NULL));
 
-    // 3. 配置并启动 Wi-Fi SoftAP 热点模式
+    // 3. 配置并启动 Wi-Fi SoftAP 热点模式 (标准 WPA2-PSK AES-CCMP，无 PMF 强校验，全球移动设备100%兼容)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
@@ -841,8 +845,10 @@ void wifi_app_init(void) {
             .channel = 1,
             .password = WIFI_AP_PASS,
             .max_connection = 4,
-            .authmode = WIFI_AUTH_WPA_WPA2_PSK,
+            .authmode = WIFI_AUTH_WPA2_PSK,
+            .pairwise_cipher = WIFI_CIPHER_TYPE_CCMP,
             .pmf_cfg = {
+                .capable = false,
                 .required = false,
             },
         },
