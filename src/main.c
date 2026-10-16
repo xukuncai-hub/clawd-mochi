@@ -115,7 +115,7 @@ void app_main(void) {
 
     // 开机首屏展示 Wi-Fi 热点连接提示 (4 秒)
     int64_t custom_osd_until = last_time + 4000000LL;
-    char osd_custom_title[32] = "» WIFI: ClawdMochi-PRO «";
+    char osd_custom_title[32] = "» WIFI: Mochi-Arcade «";
     char osd_custom_sub[32] = "免密直连 192.168.4.1";
     int64_t osd_until = 0;
 

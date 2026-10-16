@@ -19,7 +19,7 @@
 
 static const char *TAG = "WIFI_APP";
 
-#define WIFI_AP_SSID "ClawdMochi-PRO"
+#define WIFI_AP_SSID "Mochi-Arcade"
 #define WIFI_AP_PASS ""  // 开放热点，免密直连，开箱即用
 
 static WebControlBridge g_bridge = {
@@ -843,7 +843,7 @@ void wifi_app_init(void) {
         .ap = {
             .ssid = WIFI_AP_SSID,
             .ssid_len = strlen(WIFI_AP_SSID),
-            .channel = 1,
+            .channel = 6,
             .max_connection = 4,
             .authmode = WIFI_AUTH_OPEN,
         },
