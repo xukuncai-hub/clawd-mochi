@@ -16,6 +16,13 @@ typedef struct {
     int request_set_idx;
     bool request_toggle_cycle;
     bool request_rotate;
+
+    // 街机游戏无线手柄控制桥
+    int game_input_x;          // -1: 左移, 0: 停止, 1: 右移
+    int game_input_y;          // -1: 上移, 0: 停止, 1: 下移
+    bool game_input_fire;      // 是否开火
+    bool game_request_restart; // 是否请求重新开始
+    bool is_game_active;       // 是否处于游戏手柄激活态
 } WebControlBridge;
 
 WebControlBridge* wifi_app_get_bridge(void);

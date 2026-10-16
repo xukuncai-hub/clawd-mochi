@@ -1,6 +1,7 @@
 #include "wifi_app.h"
 #include "alarm_timer.h"
 #include "effects.h"
+#include "game_plane.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -22,27 +23,32 @@ static const char *TAG = "WIFI_APP";
 
 static WebControlBridge g_bridge = {
     .current_effect_idx = 0,
-    .num_effects = 17,
+    .num_effects = 18,
     .auto_cycle = true,
     .request_next = false,
     .request_prev = false,
     .request_set_idx = -1,
     .request_toggle_cycle = false,
-    .request_rotate = false
+    .request_rotate = false,
+    .game_input_x = 0,
+    .game_input_y = 0,
+    .game_input_fire = false,
+    .game_request_restart = false,
+    .is_game_active = false
 };
 
 WebControlBridge* wifi_app_get_bridge(void) {
     return &g_bridge;
 }
 
-// 嵌入式精美全功能移动端网页 (极客赛博机甲暗色风，免外网 CDN)
+// 嵌入式精美全功能移动端网页 (极客赛博机甲暗色风 + 街机无线手柄)
 static const char index_html[] =
 "<!DOCTYPE html>"
 "<html lang='zh-CN'>"
 "<head>"
 "<meta charset='UTF-8'>"
 "<meta name='viewport' content='width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no'>"
-"<title>Clawd Mochi 智能闹钟与定时器</title>"
+"<title>Clawd Mochi PRO 终端控制器</title>"
 "<style>"
 ":root{--bg:#0b0f17;--card:#141c2b;--border:#1e2d42;--cyan:#00f0ff;--magenta:#ff0077;--gold:#ffbe00;--text:#e2e8f0;--sub:#8899ac}"
 "*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif}"
@@ -80,6 +86,13 @@ static const char index_html[] =
 "input:checked+.slider:before{transform:translateX(24px)}"
 ".fx-btn{font-size:12px;padding:8px 4px;border-radius:8px;background:#1e2d42;color:var(--text);border:1px solid var(--border);cursor:pointer;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
 ".fx-btn.active{background:#00f0ff22;border-color:var(--cyan);color:var(--cyan);font-weight:700}"
+
+"/* 街机无线手柄样式 */"
+".gamepad-box{background:linear-gradient(135deg,#121b2d,#1a132b);border:2px solid #00f0ff55;border-radius:16px;padding:16px;box-shadow:0 0 25px #00f0ff22;touch-action:none;user-select:none;-webkit-user-select:none}"
+".pad-btn{display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;background:#1a2538;color:#00f0ff;border:2px solid #00f0ff44;border-radius:12px;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;transition:all .08s}"
+".pad-btn:active,.pad-btn.pressed{background:#00f0ff;color:#000;box-shadow:0 0 20px #00f0ff;transform:scale(0.92)}"
+".btn-fire{background:linear-gradient(135deg,#ff0055,#b80033);border:2px solid #ff0077;color:#fff;font-size:20px;font-weight:900;border-radius:50%;width:86px;height:86px;box-shadow:0 0 20px #ff005588;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none}"
+".btn-fire:active,.btn-fire.pressed{background:#ff0077;transform:scale(0.90);box-shadow:0 0 35px #ff0077}"
 "</style>"
 "</head>"
 "<body>"
@@ -94,6 +107,46 @@ static const char index_html[] =
 "<h1><span>Clawd Mochi</span><span style='color:#fff;font-size:15px;background:#ff0077;padding:2px 6px;border-radius:6px;'>PRO</span></h1>"
 "<div class='badge'>WiFi 已直连 · 192.168.4.1</div>"
 "</header>"
+
+"<!-- 0. 街机太空飞机大战无线手柄 (重点推荐) -->"
+"<div class='card' style='border-color:var(--cyan);background:linear-gradient(135deg,#131b2e,#1b142d);'>"
+"<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;'>"
+"<div style='font-size:16px;font-weight:700;color:var(--cyan);display:flex;align-items:center;gap:6px;'>"
+"<span>🕹️</span><span>街机飞机大战 · 无线手柄</span>"
+"</div>"
+"<button onclick='toggleGamePad()' id='btnGameToggle' class='btn btn-cyan' style='padding:6px 12px;font-size:13px;'>▶ 展开手柄</button>"
+"</div>"
+"<div id='gamePadBox' style='display:none;' class='gamepad-box'>"
+"<div style='display:flex;justify-content:space-between;align-items:center;background:#0b0f17;padding:8px 12px;border-radius:8px;border:1px solid var(--border);margin-bottom:14px;font-size:13px;'>"
+"<div>❤️ 生命: <b id='gameLives' style='color:#ff0055;'>3</b></div>"
+"<div>🏆 得分: <b id='gameScore' style='color:var(--gold);'>00000</b></div>"
+"<div>⚡ 武器: <b id='gameLevel' style='color:var(--cyan);'>LV1</b></div>"
+"</div>"
+"<!-- D-Pad 十字方向键与开火按钮 -->"
+"<div style='display:flex;justify-content:space-around;align-items:center;padding:6px 0;'>"
+"<div style='display:grid;grid-template-columns:repeat(3,52px);grid-template-rows:repeat(3,52px);gap:6px;'>"
+"<div></div>"
+"<div class='pad-btn' id='padUp'>▲</div>"
+"<div></div>"
+"<div class='pad-btn' id='padLeft'>◀</div>"
+"<div style='background:#0d1420;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#445566;font-size:11px;'>PAD</div>"
+"<div class='pad-btn' id='padRight'>▶</div>"
+"<div></div>"
+"<div class='pad-btn' id='padDown'>▼</div>"
+"<div></div>"
+"</div>"
+"<div style='display:flex;flex-direction:column;align-items:center;gap:6px;'>"
+"<div class='btn-fire' id='padFire'>FIRE</div>"
+"<span style='font-size:11px;color:var(--sub);'>按住连发</span>"
+"</div>"
+"</div>"
+"<div class='grid-2' style='margin-top:14px;'>"
+"<button onclick='restartGame()' class='btn btn-outline'>🔄 重新开始</button>"
+"<button onclick='exitGame()' class='btn btn-outline' style='color:#ff6688;border-color:#ff005544;'>❌ 退出手柄</button>"
+"</div>"
+"<div style='font-size:11px;color:var(--sub);text-align:center;margin-top:8px;'>提示：电脑端可直接使用键盘 方向键 / WASD 移动，空格键 开火</div>"
+"</div>"
+"</div>"
 
 "<!-- 1. 实时时钟看板 -->"
 "<div class='card'>"
@@ -152,13 +205,16 @@ static const char index_html[] =
 "<button onclick='rotateScreen()' class='btn btn-outline'>🔁 旋转屏幕 90°</button>"
 "</div>"
 "<div class='grid-3' id='fxListGrid'>"
-"<!-- 17 大特效远程点击按钮动态渲染 -->"
+"<!-- 18 大特效远程点击按钮动态渲染 -->"
 "</div>"
 "</div>"
 
 "<script>"
-"const FX_NAMES=['甜甜圈','赛博落日','数字雨','等离子','音频频谱','引力黑洞','银河旋涡','毁灭火焰','虫洞隧道','星空超立方','DNA双螺旋','熔岩融球','战术雷达','激光示波器','生命游戏','北极极光','朱利亚分形'];"
+"const FX_NAMES=['甜甜圈','赛博落日','数字雨','等离子','音频频谱','引力黑洞','银河旋涡','毁灭火焰','虫洞隧道','星空超立方','DNA双螺旋','熔岩融球','战术雷达','激光示波器','生命游戏','北极极光','朱利亚分形','飞机大战🎮'];"
 "let gTimerState='idle';"
+"let gGamePadOpen=false;"
+"let gInputState={x:0,y:0,fire:false};"
+"let gInputInterval=null;"
 
 "function initFxButtons(){"
 "const grid=document.getElementById('fxListGrid');"
@@ -170,6 +226,88 @@ static const char index_html[] =
 "btn.innerText=(i+1)+'. '+name;"
 "btn.onclick=()=>setFx(i);"
 "grid.appendChild(btn);"
+"});"
+"}"
+
+"function toggleGamePad(){"
+"const box=document.getElementById('gamePadBox');"
+"const btn=document.getElementById('btnGameToggle');"
+"gGamePadOpen=!gGamePadOpen;"
+"if(gGamePadOpen){"
+"box.style.display='block';"
+"btn.innerText='▼ 收起手柄';"
+"fetch('/api/game_control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'enter'})});"
+"startInputLoop();"
+"}else{"
+"box.style.display='none';"
+"btn.innerText='▶ 展开手柄';"
+"stopInputLoop();"
+"}"
+"}"
+
+"function restartGame(){"
+"fetch('/api/game_control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'restart'})});"
+"}"
+
+"function exitGame(){"
+"gGamePadOpen=false;"
+"document.getElementById('gamePadBox').style.display='none';"
+"document.getElementById('btnGameToggle').innerText='▶ 展开手柄';"
+"stopInputLoop();"
+"fetch('/api/game_control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'exit'})});"
+"}"
+
+"function sendGameInput(){"
+"fetch('/api/game_input',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(gInputState)}).catch(e=>{});"
+"}"
+
+"function startInputLoop(){"
+"if(!gInputInterval){"
+"gInputInterval=setInterval(()=>{if(gGamePadOpen&&(gInputState.x!==0||gInputState.y!==0||gInputState.fire)){sendGameInput();}},60);"
+"}"
+"}"
+
+"function stopInputLoop(){"
+"if(gInputInterval){clearInterval(gInputInterval);gInputInterval=null;}"
+"gInputState={x:0,y:0,fire:false};"
+"sendGameInput();"
+"}"
+
+"function setupPadTouch(elemId,onDown,onUp){"
+"const el=document.getElementById(elemId);"
+"if(!el)return;"
+"const down=e=>{e.preventDefault();el.classList.add('pressed');if(navigator.vibrate)navigator.vibrate(15);onDown();sendGameInput();};"
+"const up=e=>{e.preventDefault();el.classList.remove('pressed');onUp();sendGameInput();};"
+"el.addEventListener('touchstart',down,{passive:false});"
+"el.addEventListener('touchend',up,{passive:false});"
+"el.addEventListener('touchcancel',up,{passive:false});"
+"el.addEventListener('mousedown',down);"
+"el.addEventListener('mouseup',up);"
+"el.addEventListener('mouseleave',up);"
+"}"
+
+"function initGamePadControls(){"
+"setupPadTouch('padLeft',()=>{gInputState.x=-1;},()=>{gInputState.x=0;});"
+"setupPadTouch('padRight',()=>{gInputState.x=1;},()=>{gInputState.x=0;});"
+"setupPadTouch('padUp',()=>{gInputState.y=-1;},()=>{gInputState.y=0;});"
+"setupPadTouch('padDown',()=>{gInputState.y=1;},()=>{gInputState.y=0;});"
+"setupPadTouch('padFire',()=>{gInputState.fire=true;},()=>{gInputState.fire=false;});"
+
+"window.addEventListener('keydown',e=>{"
+"if(!gGamePadOpen)return;"
+"if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A'){gInputState.x=-1;sendGameInput();}"
+"else if(e.key==='ArrowRight'||e.key==='d'||e.key==='D'){gInputState.x=1;sendGameInput();}"
+"else if(e.key==='ArrowUp'||e.key==='w'||e.key==='W'){gInputState.y=-1;sendGameInput();}"
+"else if(e.key==='ArrowDown'||e.key==='s'||e.key==='S'){gInputState.y=1;sendGameInput();}"
+"else if(e.key===' '||e.key==='j'||e.key==='J'){gInputState.fire=true;sendGameInput();}"
+"else if(e.key==='r'||e.key==='R'){restartGame();}"
+"});"
+
+"window.addEventListener('keyup',e=>{"
+"if(!gGamePadOpen)return;"
+"if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A'||e.key==='ArrowRight'||e.key==='d'||e.key==='D'){gInputState.x=0;sendGameInput();}"
+"if(e.key==='ArrowUp'||e.key==='w'||e.key==='W'||e.key==='ArrowDown'||e.key==='s'||e.key==='S'){gInputState.y=0;sendGameInput();}"
+"if(e.key===' '||e.key==='j'||e.key==='J'){gInputState.fire=false;sendGameInput();}"
 "});"
 "}"
 
@@ -216,9 +354,22 @@ static const char index_html[] =
 "if(gTimerState==='running'){btnP.innerText='⏸ 暂停';btnP.className='btn btn-outline';}"
 "else if(gTimerState==='paused'){btnP.innerText='▶ 继续';btnP.className='btn btn-gold';}"
 "else{btnP.innerText='⏸ 暂停';btnP.className='btn btn-outline';}"
-"document.getElementById('curFxName').innerText='['+(d.cur_fx+1)+'/13] '+d.cur_fx_title;"
+"document.getElementById('curFxName').innerText='['+(d.cur_fx+1)+'/18] '+(FX_NAMES[d.cur_fx]||d.cur_fx_title);"
 "document.getElementById('btnCycle').innerText='🔄 自动轮播: '+(d.auto_cycle?'开':'关');"
 "document.querySelectorAll('.fx-btn').forEach((b,idx)=>{if(idx===d.cur_fx){b.classList.add('active');}else{b.classList.remove('active');}});"
+
+"if(d.game_score!==undefined){"
+"document.getElementById('gameScore').innerText=String(d.game_score).padStart(5,'0');"
+"document.getElementById('gameLives').innerText=d.game_lives;"
+"document.getElementById('gameLevel').innerText='LV'+d.game_level;"
+"}"
+
+"if(d.cur_fx===17&&!gGamePadOpen){"
+"gGamePadOpen=true;"
+"document.getElementById('gamePadBox').style.display='block';"
+"document.getElementById('btnGameToggle').innerText='▼ 收起手柄';"
+"startInputLoop();"
+"}"
 "}).catch(e=>{});"
 "}"
 
@@ -259,7 +410,11 @@ static const char index_html[] =
 "}"
 
 "function setFx(idx){"
+"if(idx===17){"
+"toggleGamePad();"
+"}else{"
 "fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'set_fx',idx:idx})}).then(()=>updateStatus());"
+"}"
 "}"
 
 "function toggleCycle(){"
@@ -272,6 +427,7 @@ static const char index_html[] =
 
 "window.onload=function(){"
 "initFxButtons();"
+"initGamePadControls();"
 "syncPhoneTime();"
 "updateStatus();"
 "setInterval(updateStatus,1000);"
@@ -286,7 +442,7 @@ static esp_err_t root_get_handler(httpd_req_t *req) {
     return httpd_resp_send(req, index_html, HTTPD_RESP_USE_STRLEN);
 }
 
-// GET /api/status - 返回系统时间、闹钟、定时器及屏幕状态
+// GET /api/status - 返回系统时间、闹钟、定时器及屏幕与游戏状态
 static esp_err_t api_status_handler(httpd_req_t *req) {
     AlarmTimerContext *ctx = alarm_timer_get_ctx();
     time_t now_t = time(NULL);
@@ -301,7 +457,11 @@ static esp_err_t api_status_handler(httpd_req_t *req) {
     else if (ctx->timer_state == TIMER_STATE_PAUSED) tstate_str = "paused";
     else if (ctx->timer_state == TIMER_STATE_RINGING) tstate_str = "ringing";
 
-    char json_buf[384];
+    int g_score = 0, g_high_score = 0, g_lives = 3, g_level = 1;
+    bool g_gameover = false;
+    game_plane_get_status(&g_score, &g_high_score, &g_lives, &g_level, &g_gameover);
+
+    char json_buf[480];
     snprintf(json_buf, sizeof(json_buf),
         "{"
         "\"time\":\"%s\","
@@ -316,7 +476,12 @@ static esp_err_t api_status_handler(httpd_req_t *req) {
         "\"ring_title\":\"%s\","
         "\"cur_fx\":%d,"
         "\"cur_fx_title\":\"%s\","
-        "\"auto_cycle\":%s"
+        "\"auto_cycle\":%s,"
+        "\"game_score\":%d,"
+        "\"game_high\":%d,"
+        "\"game_lives\":%d,"
+        "\"game_level\":%d,"
+        "\"game_over\":%s"
         "}",
         time_str,
         ctx->time_synced ? "true" : "false",
@@ -329,12 +494,69 @@ static esp_err_t api_status_handler(httpd_req_t *req) {
         ctx->is_ringing ? "true" : "false",
         ctx->ring_title,
         g_bridge.current_effect_idx,
-        (g_bridge.current_effect_idx < 13) ? "CLAW_FX" : "",
-        g_bridge.auto_cycle ? "true" : "false"
+        (g_bridge.current_effect_idx == 17) ? "街机飞机大战" : "特效展示",
+        g_bridge.auto_cycle ? "true" : "false",
+        g_score,
+        g_high_score,
+        g_lives,
+        g_level,
+        g_gameover ? "true" : "false"
     );
 
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, json_buf, HTTPD_RESP_USE_STRLEN);
+}
+
+// POST /api/game_input - 接收手机端手柄按键信号
+static esp_err_t api_game_input_handler(httpd_req_t *req) {
+    char buf[128];
+    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (ret > 0) {
+        buf[ret] = '\0';
+        int x = 0, y = 0;
+        bool fire = false;
+        char *px = strstr(buf, "\"x\":");
+        char *py = strstr(buf, "\"y\":");
+        char *pf = strstr(buf, "\"fire\":");
+        if (px) sscanf(px, "\"x\":%d", &x);
+        if (py) sscanf(py, "\"y\":%d", &y);
+        if (pf) fire = (strstr(pf, "true") != NULL || strstr(pf, "1") != NULL);
+
+        g_bridge.game_input_x = x;
+        g_bridge.game_input_y = y;
+        g_bridge.game_input_fire = fire;
+        g_bridge.is_game_active = true;
+
+        if (g_bridge.current_effect_idx != 17) {
+            g_bridge.request_set_idx = 17;
+            g_bridge.auto_cycle = false;
+        }
+    }
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, "{\"status\":\"ok\"}", HTTPD_RESP_USE_STRLEN);
+}
+
+// POST /api/game_control - 控制游戏进入、重新开始、退出
+static esp_err_t api_game_control_handler(httpd_req_t *req) {
+    char buf[128];
+    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (ret > 0) {
+        buf[ret] = '\0';
+        if (strstr(buf, "\"action\":\"enter\"") || strstr(buf, "\"action\":\"start\"")) {
+            g_bridge.request_set_idx = 17;
+            g_bridge.is_game_active = true;
+            g_bridge.auto_cycle = false;
+            g_bridge.game_request_restart = true;
+        } else if (strstr(buf, "\"action\":\"restart\"")) {
+            g_bridge.game_request_restart = true;
+        } else if (strstr(buf, "\"action\":\"exit\"")) {
+            g_bridge.is_game_active = false;
+            g_bridge.request_set_idx = 0;
+            g_bridge.auto_cycle = true;
+        }
+    }
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, "{\"status\":\"ok\"}", HTTPD_RESP_USE_STRLEN);
 }
 
 // POST /api/sync_time - 手机端一键对时
@@ -446,7 +668,7 @@ static httpd_handle_t start_webserver(void) {
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
-    config.max_uri_handlers = 12;
+    config.max_uri_handlers = 16;
 
     ESP_LOGI(TAG, "Starting HTTP Server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
@@ -455,6 +677,12 @@ static httpd_handle_t start_webserver(void) {
 
         httpd_uri_t status_uri = { .uri = "/api/status", .method = HTTP_GET, .handler = api_status_handler, .user_ctx = NULL };
         httpd_register_uri_handler(server, &status_uri);
+
+        httpd_uri_t game_in_uri = { .uri = "/api/game_input", .method = HTTP_POST, .handler = api_game_input_handler, .user_ctx = NULL };
+        httpd_register_uri_handler(server, &game_in_uri);
+
+        httpd_uri_t game_ctrl_uri = { .uri = "/api/game_control", .method = HTTP_POST, .handler = api_game_control_handler, .user_ctx = NULL };
+        httpd_register_uri_handler(server, &game_ctrl_uri);
 
         httpd_uri_t sync_uri = { .uri = "/api/sync_time", .method = HTTP_POST, .handler = api_sync_time_handler, .user_ctx = NULL };
         httpd_register_uri_handler(server, &sync_uri);

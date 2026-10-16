@@ -15,13 +15,14 @@
 #include "fast_math.h"
 #include "alarm_timer.h"
 #include "wifi_app.h"
+#include "game_plane.h"
 
 static const char *TAG = "CLAWD_MOCHI";
 
 #define PIN_BOOT_BUTTON GPIO_NUM_9
 #define PIN_BUZZER      GPIO_NUM_6
 
-// 17 款精选高帧率动态特效轮播阵列
+// 18 款精选高帧率动态特效与街机游戏轮播阵列
 static Effect *effects[] = {
     &fx_donut,        // 1. 3D 旋转甜甜圈
     &fx_synthwave,    // 2. 赛博朋克 80s 霓虹落日与透视网格
@@ -39,7 +40,8 @@ static Effect *effects[] = {
     &fx_oscilloscope, // 14. 赛博激光李萨如谐波示波器
     &fx_gameoflife,   // 15. 康威量子元胞自动机生命游戏
     &fx_aurora,       // 16. 极地深空极光与雪山倒影
-    &fx_fractal       // 17. 电光朱利亚全动态复变分形云
+    &fx_fractal,      // 17. 电光朱利亚全动态复变分形云
+    &fx_game_plane    // 18. 街机太空飞机大战 (支持手机无线手柄)
 };
 
 #define NUM_EFFECTS (int)(sizeof(effects) / sizeof(effects[0]))
@@ -169,6 +171,15 @@ void app_main(void) {
             custom_osd_until = now + 2000000LL;
         }
 
+        // 处理街机游戏模式输入同步
+        if (current_idx == 17) {
+            if (bridge->game_request_restart) {
+                game_plane_restart();
+                bridge->game_request_restart = false;
+            }
+            game_plane_set_input(bridge->game_input_x, bridge->game_input_y, bridge->game_input_fire);
+        }
+
         // 3. 处理物理 BOOT 按键 (GPIO 9, 低电平触发)
         bool btn_pressed = (gpio_get_level(PIN_BOOT_BUTTON) == 0);
         if (btn_pressed && btn_last_state) {
@@ -181,6 +192,15 @@ void app_main(void) {
                 alarm_timer_dismiss_ring();
                 buzzer_beep(30);
                 ESP_LOGI(TAG, "Alarm dismissed via physical BOOT button.");
+            } else if (current_idx == 17 && press_duration > 40000LL && press_duration < 800000LL) {
+                // 处于游戏模式中：短按触发开火或重新开始
+                int sc, hsc, liv, lvl; bool go;
+                game_plane_get_status(&sc, &hsc, &liv, &lvl, &go);
+                if (go) {
+                    game_plane_restart();
+                } else {
+                    game_plane_set_input(0, 0, true);
+                }
             } else if (press_duration > 40000LL && press_duration < 800000LL) {
                 int64_t time_since_last_click = now - last_click_time;
                 if (time_since_last_click < 400000LL) {
@@ -204,19 +224,29 @@ void app_main(void) {
                     ESP_LOGI(TAG, "Single-click: Switched to [%d/%d] %s", current_idx + 1, NUM_EFFECTS, effects[current_idx]->title);
                 }
             } else if (press_duration >= 800000LL) {
-                // 长按：切换自动轮播状态
-                auto_cycle = !auto_cycle;
-                buzzer_beep(50);
-                snprintf(osd_custom_title, sizeof(osd_custom_title), "» AUTO CYCLE: %s «", auto_cycle ? "ON" : "OFF");
-                snprintf(osd_custom_sub, sizeof(osd_custom_sub), auto_cycle ? "已开启自动轮播" : "已锁定当前特效");
-                custom_osd_until = now + 2000000LL;
-                ESP_LOGI(TAG, "Long-press: Auto-cycle %s", auto_cycle ? "ON" : "OFF");
+                if (current_idx == 17) {
+                    // 游戏模式时长按：退出游戏并切换回第一个特效
+                    if (effects[current_idx]->cleanup) effects[current_idx]->cleanup();
+                    current_idx = 0;
+                    effects[current_idx]->init();
+                    osd_until = now + 2500000LL;
+                    last_switch_time = now;
+                    ESP_LOGI(TAG, "Exited game mode via long-press.");
+                } else {
+                    // 常规特效模式时长按：切换自动轮播状态
+                    auto_cycle = !auto_cycle;
+                    buzzer_beep(50);
+                    snprintf(osd_custom_title, sizeof(osd_custom_title), "» AUTO CYCLE: %s «", auto_cycle ? "ON" : "OFF");
+                    snprintf(osd_custom_sub, sizeof(osd_custom_sub), auto_cycle ? "已开启自动轮播" : "已锁定当前特效");
+                    custom_osd_until = now + 2000000LL;
+                    ESP_LOGI(TAG, "Long-press: Auto-cycle %s", auto_cycle ? "ON" : "OFF");
+                }
             }
         }
         btn_last_state = !btn_pressed;
 
-        // 4. 自动循环轮播 (默认每 12 秒轮播下一个特效，静音切换)
-        if (auto_cycle && (now - last_switch_time >= 12000000LL)) {
+        // 4. 自动循环轮播 (默认每 12 秒轮播下一个特效；当玩游戏或开启游戏手柄时不自动切走)
+        if (auto_cycle && current_idx != 17 && !bridge->is_game_active && (now - last_switch_time >= 12000000LL)) {
             if (effects[current_idx]->cleanup) effects[current_idx]->cleanup();
             current_idx = (current_idx + 1) % NUM_EFFECTS;
             effects[current_idx]->init();

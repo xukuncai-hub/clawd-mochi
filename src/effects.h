@@ -31,5 +31,6 @@ extern Effect fx_oscilloscope;  // 14. 赛博激光李萨如谐波示波器
 extern Effect fx_gameoflife;    // 15. 康威量子元胞自动机生命游戏
 extern Effect fx_aurora;        // 16. 极地深空极光与雪山倒影
 extern Effect fx_fractal;       // 17. 电光朱利亚全动态复变分形云
+extern Effect fx_game_plane;    // 18. 街机太空飞机大战 (支持手机无线手柄)
 
 #endif // EFFECTS_H
