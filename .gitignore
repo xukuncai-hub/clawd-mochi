@@ -1,25 +1,27 @@
-# Claude Code
-.claude/
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
 
-# Arduino IDE build output
+# Build artifacts
 build/
-*.elf
 *.bin
+*.elf
 *.map
 *.hex
+
+# VS Code & IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
 # OS files
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Editor
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Logs and temp
+# Logs & Temp
 *.log
 *.tmp
 *.bak

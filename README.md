@@ -3,365 +3,187 @@
   <img src="pics/clawd_mochi_banner.png" alt="Clawd Mochi Logo" width="700"/>
 </p>
 
-# Clawd Mochi 🦀🤖
+# Clawd Mochi PRO 🦀⚡
 
-A physical desk companion inspired by **Clawd** — the pixel-crab mascot of Claude Code by Anthropic. An ESP32-C3 drives a 1.54" color TFT display and hosts a mobile web controller — no app, no internet, no cloud required.
+[![Framework: ESP-IDF](https://img.shields.io/badge/Framework-ESP--IDF-E7352C.svg?style=flat-square&logo=espressif)](https://docs.espressif.com/projects/esp-idf/en/latest/)
+[![PlatformIO](https://img.shields.io/badge/PlatformIO-Compatible-orange.svg?style=flat-square&logo=platformio)](https://platformio.org/)
+[![Hardware: ESP32-C3](https://img.shields.io/badge/Hardware-ESP32--C3-blue.svg?style=flat-square)](https://www.espressif.com/en/products/socs/esp32-c3)
+[![Display: ST7789 IPS](https://img.shields.io/badge/Display-ST7789%20240x240%20IPS-green.svg?style=flat-square)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+[![3D Case: MakerWorld](https://img.shields.io/badge/3D%20Print-MakerWorld-informational.svg?style=flat-square&logo=bambulab)](https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000)
 
-**Cost: ~$6–8 · Build time: ~1 hour · Skill level: Beginner**
+**Clawd Mochi PRO** 是专为 **ESP32-C3 + ST7789 1.54寸 240×240 高清 IPS 彩屏** 打造的高性能赛博极客动态特效展示台与智能桌面伴侣。
 
-Support the project on Instagram: [![Instagram](https://img.shields.io/badge/Instagram-E4405F?logo=instagram&logoColor=fff&style=for-the-badge)](https://instagram.com/clawd.mochi)
+本项目使用 **ESP-IDF 原生驱动与高性能实时数学渲染引擎**，重构了原版低帧率静态表情包方案，升级为 **17 款极致丝滑的数学动态特效**，并内置 **独立 WiFi AP 网页控制器、一键时钟同步、智能定时闹钟与专注番茄钟**，兼顾高颜值极客桌面美学与实用工位工具属性！
 
-📦 3D printable case on MakerWorld: [https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000](https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000)
-
----
-
-> ⚠️ This is an independent fan project. It is not affiliated with, sponsored by, or endorsed by Anthropic. "Claude" and "Clawd" are trademarks of Anthropic.
+> ⚠️ **声明**：本项目为独立开源极客项目，灵感源自 Anthropic 旗下 Claude Code 的可爱吉祥物 Clawd 蟹。“Claude” 与 “Clawd” 为 Anthropic 的注册商标。
 
 ---
 
 <p align="center">
-  <img src="pics/clawd_mochi_3_4.jpeg" alt="Assembled Clawd Mochi on a desk" width="500"/>
+  <img src="pics/clawd_mochi_3_4.jpeg" alt="Assembled Clawd Mochi on a desk" width="460"/>
   &nbsp;
-  <img src="pics/clawd_mochi_claude_code.jpeg" alt="Claude Code view" width="500"/>
+  <img src="pics/clawd_mochi_claude_code.jpeg" alt="Claude Code view" width="460"/>
 </p>
 
-## What it does
+---
 
-Clawd Mochi sits on your desk and shows animated expressions on a small color display. You control it from any phone or browser by connecting to its built-in WiFi hotspot. No app, no internet, no cloud required.
+## 🌟 核心特性 (Features)
 
-### 😊 13 Animated Expressions
-
-| Expression | Description |
-|-----------|-------------|
-| **Normal** 👀 | Wiggle + blink animation |
-| **Happy** 😊 | `> <` squint with open/close |
-| **Angry** 😠 | Slanted brows, narrowed pupils + shake |
-| **Heart** 💗 | Pulsing heart eyes |
-| **Dizzy** 😵 | X eyes → spiral animation |
-| **Sleepy** 😴 | Droopy half-closed slits |
-| **Wow** 😲 | Wide eyes with small pupils |
-| **Wink** 😉 | Alternating left/right wink |
-| **Cry** 😢 | Pleading pupils + blue tear drops |
-| **Star** ⭐ | Sparkle cross with flash effect |
-| **Shy** 😊 | Sideways glance + pink blush |
-| **Puppy** 🐶 | Big shiny pleading eyes |
-| **Logo** ⭐ | Anthropic logo reveal animation |
-
-### 🕐 Clock & Weather
-
-- **Digital clock** — large time display with date, weather summary, and city name
-- **Analog clock** — classic clock face with hour/minute/second hands, smooth sweep
-- **Weather view** — temperature, humidity, wind speed, weather condition from Open-Meteo API
-- **Auto time sync** — NTP time sync via home WiFi (optional STA mode)
-- **Location** — manual lat/lon, city geocoding, or IP auto-detect
-
-### ⏰ Alarms & Timer
-
-- **Up to 8 alarms** — set hour/minute, enable/disable, configurable ring duration (5s–5min)
-- **Countdown timer** — hours:minutes:seconds, progress bar, start/pause/reset
-- **Buzzer support** — connect to GPIO 6 for alarm/timer sound
-
-### 🎨 Other Features
-
-- **Dance animation** — plays the classic b4.gif dance loop on screen
-- **Auto-switch mode** — cycles through expressions or info views automatically
-- **Terminal** — interactive terminal on the TFT, type from the web controller
-- **Canvas** — draw on the display from your phone in real time, 240×240 resolution
-- **Animation speed** — slow / normal / fast (3 levels)
-- **Custom background color** — any hex color via web color picker
-- **Backlight toggle** — turn display on/off remotely
-
-### 🌐 WiFi Modes
-
-- **AP mode** (default) — creates its own WiFi hotspot `ClaWD-Mochi`, connect directly
-- **STA mode** (optional) — connects to your home WiFi for internet access (NTP + weather)
-- **Dual mode** — AP always available, STA connects in background
+- 🚀 **ESP-IDF 原生极速驱动**：采用硬件高速 SPI（40MHz）双缓冲 DMA 异步推屏，算法针对 RISC-V 架构进行定点数/快速正余弦数学优化，保持满帧极致流畅。
+- 🎨 **17 款豪华精选赛博数学动态特效**：涵盖 3D 光影甜甜圈、黑客帝国代码雨、Doom 流体火焰、复古 Synthwave 网格落日、引力透镜黑洞等。
+- 📱 **独立免 App 手机 Web 控制台**：ESP32 自动发射独立 WiFi AP（`ClawdMochi`，无需联网无需外网），手机连接即刻进入极客暗黑风控制面板。
+- 🕒 **一键手机时间秒同步**：进入网页瞬间自动读取手机高精度时间并同步至 ESP32 硬件 RTC。
+- ⏰ **智能定时闹钟 & 专注倒计时（番茄钟）**：支持网页自由设定闹铃时间与专注倒计时（1/3/5/10/25分钟及自定义），到期触发蜂鸣器警报并在屏幕弹出醒目倒计时提示。
+- 🕹️ **双重交互（按键 + Web）**：可通过板载 BOOT 按键或手机网页随时切换特效、锁定轮播或一键解除闹铃。
+- 🖨️ **完美兼容原版 3D 打印外壳**：完全适配原版 Clawd Mochi 蟹型 3D 打印外壳，小巧玲珑，工位吸睛神器。
 
 ---
 
-## Parts list
+## 🎨 17 大高帧率动态特效全览
 
-| Part                | Spec                             | ~Price |
-| ------------------- | -------------------------------- | ------ |
-| ESP32-C3 Super Mini | microcontroller with WiFi        | ~$2.50 |
-| ST7789 1.54" TFT    | 240×240 SPI color display        | ~$3.00 |
-| 8 short wires       | 8–10 cm Dupont / jumper wires    | ~$0.50 |
-| 2× M2×6mm screws    | to mount display bezel           | ~$0.10 |
-| Double-sided tape   | to secure components inside case | ~$0.10 |
-| USB-C cable         | for power                        | —      |
-| 3D printed case     | PLA or PETG, ~30g                | ~$0.50 |
-
-**Total: ~$7–8**
-
----
-
-## Wiring
-
-> ⚠️ Connect VCC to **3.3V only** — never 5V. Use GPIO 8 and 10 for SPI (hardware SPI, fast). Do not use GPIO 6/7 for SPI.
-
-| Display pin | ESP32-C3 GPIO  | Wire color (suggested) |
-| ----------- | -------------- | ---------------------- |
-| VCC         | 3V3            | Red                    |
-| GND         | GND            | Black                  |
-| SDA         | GPIO 10 (MOSI) | Orange                 |
-| SCL         | GPIO 8 (SCK)   | Green                  |
-| RES         | GPIO 2         | Purple                 |
-| DC          | GPIO 1         | Blue                   |
-| CS          | GPIO 4         | White                  |
-| BL          | GPIO 3         | Yellow                 |
+| 编号 | 特效名称 | 核心算法与视觉呈现 |
+| :---: | :--- | :--- |
+| **01** | **3D 光影旋转甜甜圈 (`fx_donut.c`)** | 3D 环面三维空间双轴旋转投影渲染，实时法向量光照着色与 16-bit 赛博彩虹渐变。 |
+| **02** | **赛博朋克 80s 霓虹落日与透视网格 (`fx_synthwave.c`)** | 经典 Synthwave 复古未来主义，透视地面线条无限滚动推进，搭配百叶窗条纹渐变巨日与地平线辉光。 |
+| **03** | **黑客帝国数字流光雨 (`fx_matrix.c`)** | 30 列全屏动态字符流光飞瀑，头部炽白荧光流光引路，尾迹深绿衰减渐暗，字符实时突变扰动。 |
+| **04** | **迷幻复古彩虹等离子电浆 (`fx_plasma.c`)** | 经典老派 Demoscene 正余弦复合波动，多频色彩干涉流体平滑律动。 |
+| **05** | **赛博霓虹音频频谱瀑布与镜面水波 (`fx_spectrum.c`)** | 20 段动感音频频谱跳动柱形图，带有峰值衰减悬浮点与底部真实水面倒影波纹。 |
+| **06** | **引力透镜黑洞与相对论吸积盘 (`fx_blackhole.c`)** | 相对论事件视界光线弯曲、核心绝对黑暗奇异点与极速旋转的多层炽热光子吸积盘。 |
+| **07** | **3D 旋涡银河与星云粒子潮 (`fx_galaxy.c`)** | 双旋臂对数螺旋星系旋转演化，核心高能稠密星团与边缘漫游星尘粒子流。 |
+| **08** | **经典毁灭战士地狱火焰 (`fx_fire.c`)** | 经典 PSX DOOM 向上热对流粒子扩散算法，37 阶炭黑 $\to$ 炽红 $\to$ 烈焰金 $\to$ 炽白火焰调色板。 |
+| **09** | **时空跃迁虫洞光速飞驰隧道 (`fx_tunnel.c`)** | 光速曲率飞驰的几何纹理隧道，多层高频缩放与空间极坐标深度扭曲。 |
+| **10** | **超空间星空与 3D 旋转超立方体 (`fx_stars.c`)** | 3D 深空粒子流光加速穿越（带运动模糊速度拖尾），屏幕中心自转的 3D 线框超立方体与发光八面体核心。 |
+| **11** | **3D 炫彩旋转 DNA 双螺旋粒子链 (`fx_dna.c`)** | 3D 空间自转的双螺旋碱基对微粒链，带近大远小景深透视与彩虹色彩渐变。 |
+| **12** | **霓虹流体熔岩双态融球 (`fx_metaballs.c`)** | 实时势能场叠加融球流体动画，互相吸引、融合与分离的液态水银球质感。 |
+| **13** | **赛博全息战术雷达 HUD (`fx_radar.c`)** | 360 度动态扫描光束、极坐标同心环刻度、随机脉冲闪烁目标点与战术十字瞄准线。 |
+| **14** | **赛博激光李萨如谐波示波器 (`fx_oscilloscope.c`)** | 复合多频简谐振动李萨如图形，霓虹辉光轨迹实时三维旋转扭折。 |
+| **15** | **康威量子元胞自动机生命游戏 (`fx_gameoflife.c`)** | 2D 经典元胞自动机，量子生死演化规则，生命代际色彩繁衍与自愈机制。 |
+| **16** | **极地深空极光与雪山倒影 (`fx_aurora.c`)** | 柔和多波段波动的夜空欧若拉极光幕帘，搭配下方静谧山峦与湖面倒影。 |
+| **17** | **电光朱利亚全动态复变分形云 (`fx_fractal.c`)** | 经典 Julia Set 复变动力学全动态分形迭代，实时呼吸缩放与色彩周期流转。 |
 
 ---
 
-## Software setup
+## 📱 手机 Web 控制台与操作交互
 
-### Step 1 — Install Arduino IDE
+### 1. 连接控制台
+1. 开机后，ESP32-C3 自动开启 WiFi 局域网热点：
+   - **WiFi SSID**：`ClawdMochi`
+   - **WiFi 密码**：无（开放热点，开箱即连）
+2. 手机连接该 WiFi 后，在浏览器中打开：
+   👉 **`http://192.168.4.1`**
+3. 即可进入内嵌的赛博暗黑风 Web 客户端：
+   - **时钟面板**：一键同步当前手机高精度时分秒到 ESP32。
+   - **闹钟设置**：开启/关闭定时闹钟，设置小时/分钟。
+   - **倒计时定时器**：快捷选择 1m、3m、5m、10m、25m（番茄工作法）或自定义时长。
+   - **特效网格面板**：点击对应特效按钮立即切换，支持一键切换 12s 自动轮播、旋转屏幕 180°。
+   - **响铃消除**：响铃中一键关闭声光警报。
 
-Download [Arduino IDE 2.x](https://www.arduino.cc/en/software) and install it.
-
-### Step 2 — Add ESP32 board support
-
-1. Open Arduino IDE → **File → Preferences**
-2. In "Additional boards manager URLs" paste:
-   ```
-   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-   ```
-3. Go to **Tools → Board → Boards Manager**, search `esp32`, install **"esp32 by Espressif Systems"**
-
-### Step 3 — Install libraries
-
-Go to **Tools → Library Manager** and install:
-
-- `Adafruit GFX Library`
-- `Adafruit ST7735 and ST7789 Library`
-- `WebSockets` by Markus Sattler
-
-### Step 4 — Configure board settings
-
-Go to **Tools** and set:
-
-| Setting         | Value                   |
-| --------------- | ----------------------- |
-| Board           | ESP32C3 Dev Module      |
-| USB CDC On Boot | **Enabled** ← important |
-| CPU Frequency   | 160 MHz                 |
-| Upload Speed    | 921600                  |
-
-### Step 5 — Upload the sketch
-
-1. Clone or download this repo
-2. Open `clawd_mochi/clawd_mochi.ino` in Arduino IDE
-3. Connect the ESP32 via USB-C
-4. Select the correct port under **Tools → Port**
-5. Click **Upload** (→ arrow button)
-6. Wait for "Hard resetting via RTS pin..." — this means success
+### 2. 机身物理按键交互 (BOOT 键 · GPIO 9)
+- **短按**：立即切换到下一个特效，伴随清脆滴声提示；若正处于闹钟/倒计时响铃状态，短按立即解除响铃。
+- **长按（> 1.2 秒）**：锁定当前特效 / 恢复自动轮播，伴随长滴声提示。
+- **切换 OSD 徽标**：每次切换特效时，屏幕上方浮现半透明赛博 HUD 徽标，展示当前特效编号与中英文名（持续 2.5 秒后自动淡出）。
 
 ---
 
-## How to use it
+## 🔌 硬件接线表 (Pinout Matrix)
 
-### Connect and open the controller
+推荐硬件：**AirM2M CORE ESP32-C3** 或 **ESP32-C3 Super Mini** + **ST7789 1.54寸 240×240 IPS 屏幕（SPI 接口，7/8 Pin）**。
 
-1. Power the ESP32 via USB-C (any USB charger or power bank)
-2. Wait ~3 seconds for the boot animation to finish
-3. On your phone or computer, go to **WiFi settings**
-4. Connect to the network: **`ClaWD-Mochi`** · password: **`clawd1234`**
-5. Open a browser and go to **`http://192.168.4.1`**
-
-You should see the web controller:
-
-<img src="pics/clawd_mochi_webpage.jpeg" alt="Webpage view" width="500"/>
-
-### Optional: Connect to home WiFi (for clock + weather)
-
-To get automatic time sync and live weather, configure your home WiFi in `clawd_mochi.ino`:
-
-```cpp
-const char* STA_SSID = "YourWiFiName";    // your home WiFi
-const char* STA_PASS = "YourPassword";    // your WiFi password
-```
-
-And set your location:
-
-```cpp
-#define MY_LAT          30.19     // your latitude
-#define MY_LON          105.84    // your longitude
-#define MY_CITY_NAME    "Chongqing"  // displayed on screen
-#define MY_TZ_OFFSET    8         // UTC offset (China=8, Japan=9, UK=0, US/East=-5)
-```
-
-Leave `MY_LAT` at `0` to auto-detect location via IP geolocation, or set `MY_CITY` to a city name for geocoding.
-
-### OTA wireless updates
-
-Once flashed via USB, you can update firmware over WiFi without opening the case:
-
-1. In Arduino IDE, wait for the device to appear under **Tools → Port → Network Ports** as `clawd-mochi.local`
-2. Select it and click Upload as usual
-3. Password: `clawd1234`
-4. The display shows a progress bar during update
-
-If the device is in AP-only mode (no home WiFi), connect your computer to the `ClaWD-Mochi` WiFi network first — OTA still works at `192.168.4.1`.
-
-### WebSocket real-time updates
-
-The web controller uses WebSocket (port 81) for instant state updates — no polling delay. If WebSocket is unavailable (older browser, firewall), the client automatically falls back to HTTP polling every 15 seconds.
-
-Settings persist across power cycles (saved to flash via ESP32 NVS).
-
-### Controller features
-
-**TFT Display section:**
-| Button | What it does |
-|--------|-------------|
-| Clock | Switch to digital clock view with time, date, weather |
-| Analog | Switch to analog clock face |
-| Weather | Switch to full weather view (temp, humidity, wind) |
-| Terminal | Open interactive terminal mode |
-| Timer | Switch to countdown timer view |
-| Dance | Play the b4.gif dance animation loop |
-
-**Eyes section:**
-| Control | What it does |
-|---------|-------------|
-| 13 expression tiles | Tap any tile to play its animation instantly |
-| Background color | Color picker — changes background of all views |
-| Speed buttons | Slow / Normal / Fast — controls animation playback speed |
-
-**Auto Switch section:**
-| Control | What it does |
-|---------|-------------|
-| Faces mode | Auto-cycles through all 12 expressions |
-| Info mode | Auto-cycles through clock, analog, weather |
-| Interval slider | Set switch interval (1.5s – 30s) |
-
-**Alarms section:**
-| Control | What it does |
-|---------|-------------|
-| Hour / Minute selects | Set alarm time per slot |
-| ON/OFF button | Enable or disable each alarm |
-| Duration select | Ring duration (5s – 5min) |
-| + Add Alarm | Add a new alarm slot (up to 8) |
-| × Delete | Remove an alarm slot |
-
-**Timer section:**
-| Control | What it does |
-|---------|-------------|
-| H / M / S inputs | Set countdown duration |
-| Start / Pause / Reset | Control the timer |
-| Buzz duration | Set alarm sound length when timer ends |
-| Apply | Push settings to device |
-
-**Advanced section:**
-| Control | What it does |
-|---------|-------------|
-| Terminal | Type commands and see output on the TFT display |
-| Canvas | 240×240 drawing surface — draw with mouse or touch |
-| Clear / Open Canvas | Manage the drawing canvas |
+| 屏幕引脚 (ST7789) | ESP32-C3 引脚 | 说明 |
+| :--- | :--- | :--- |
+| **SDA / MOSI** | **GPIO 10** | 硬件 SPI 高速数据线 |
+| **SCL / SCK** | **GPIO 8** | 硬件 SPI 时钟线（40 MHz 高速通信） |
+| **RES / RST** | **GPIO 2** | 硬件复位引脚 |
+| **DC** | **GPIO 1** | 数据 / 命令切换引脚 |
+| **CS** | **GPIO 4** | SPI 片选引脚 |
+| **BLK / BL** | **GPIO 3** | 背光控制引脚（高电平点亮） |
+| **VCC** | **3.3V** | ⚠️ **请务必连接 3.3V，切勿接 5V** |
+| **GND** | **GND** | 电源共地 |
+| **按键 (BOOT)** | **GPIO 9** | 板载 BOOT 按键（短按切换，长按锁定） |
+| **蜂鸣器 (可选)** | **GPIO 6** | 低电平触发蜂鸣器 / 有源蜂鸣器 |
 
 ---
 
-## 3D case
+## 🖨️ 3D 打印外壳与硬件清单 (BOM)
 
-The electronics case (body + back) is in the `clawd_mochi` model folder:
+### 3D 打印模型
+仓库 `models/` 目录中已包含全套 3D 打印 STL 模型文件：
+- `models/clawd_mochi/`：原版经典 Clawd Mochi 壳体与支架
+- `models/clawd_3d/`：优化版 3D 打印壳体
+- `models/clawd_3d_squished_eyes/`：挤压大眼趣味版
 
-| File                                                                                 | Description                               |
-| ------------------------------------------------------------------------------------ | ----------------------------------------- |
-| [`./models/clawd_mochi/clawd_mochi_v1.stl`](./models/clawd_mochi/clawd_mochi_v1.stl) | Main case layout with body and back parts |
+也可以在 MakerWorld 上一键发送至拓竹 Bambu 打印机：
+👉 [MakerWorld 3D 模型直达链接](https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000)
 
-### Print settings
-
-| Setting      | Value                               |
-| ------------ | ----------------------------------- |
-| Material     | PLA or PETG                         |
-| Layer height | 0.15–0.20 mm                        |
-| Infill       | 15% gyroid                          |
-| Supports     | Yes — for display window overhang   |
-| Orientation  | Face-down, flat back on build plate |
-
-Suggested colors: orange PLA for body, matte black for back plate.
-
-You can also download the models from MakerWorld: [https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000](https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000)
-
-### 3D Clawd (no electronics)
-
-If you just want a display piece, use the separate 3D Clawd model (no screen or electronics cutouts).
-
-<img src="pics/clawd_3D_squished_eyes_4_3.png" alt="3D printed Clawd model with squished eyes" width="500"/>
-
-Model files:
-
-| File | Description |
-| ---- | ----------- |
-| [`./models/clawd_3d/clawd_3D_no_AMS.stl`](./models/clawd_3d/clawd_3D_no_AMS.stl) | Original Clawd 3D model |
-| [`./models/clawd_3d_squished_eyes/clawd_3D_squished_eyes_no_AMS.stl`](./models/clawd_3d_squished_eyes/clawd_3D_squished_eyes_no_AMS.stl) | Squished eyes variant |
-
-You can also download the models from MakerWorld: [https://makerworld.com/en/models/2576503-clawd-claude-code-mascot#profileId-2841183](https://makerworld.com/en/models/2576503-clawd-claude-code-mascot#profileId-2841183)
+### 硬件清单与成本估算
+| 配件 | 规格建议 | 参考价格 |
+| :--- | :--- | :---: |
+| ESP32-C3 核心板 | Super Mini 或 合宙 AirM2M CORE ESP32-C3 | ~¥12 ($1.8) |
+| 1.54寸 IPS 屏幕 | ST7789 驱动，240×240 分辨率，SPI 接口 | ~¥15 ($2.2) |
+| 蜂鸣器模块 | 低电平触发有源蜂鸣器（或无源） | ~¥2 ($0.3) |
+| 杜邦线 / 飞线 | 8~10 cm 细硅胶线 | ~¥2 ($0.3) |
+| 3D 打印耗材 | PLA / PETG 约 30g | ~¥3 ($0.5) |
+| M2 螺丝 | M2×6mm 螺丝 2 颗（固定屏幕） | ~¥1 ($0.1) |
+| **总计** | | **~¥35 ($5~7)** |
 
 ---
 
-## Assembly tips
+## 🚀 编译与烧录指南 (Build & Flash)
 
-1. Print the case file (body + back) and test-fit the display before gluing anything
-2. Thread the 8 wires through the back plate slot before soldering
-3. Use double-sided tape to fix the ESP32 against the inside of the back plate
-4. Secure the display with 2× M2×6mm screws through the bezel holes
-5. Route the USB-C cable through the back plate slot and snap the back on
+本工程基于标准的 **PlatformIO + ESP-IDF** 开发环境：
 
----
+### 方式一：VS Code + PlatformIO 插件（推荐）
+1. 在 VS Code 中安装 **PlatformIO IDE** 插件。
+2. 点击 VS Code 菜单：`文件 (File) -> 打开文件夹 (Open Folder)`，选择本项目根目录。
+3. 状态栏底部点击 **Build (编译)** 按钮（或快捷键 `Ctrl+Alt+B`）。
+4. 将 ESP32-C3 通过 USB 数据线接入电脑，点击 **Upload (烧录)** 按钮即可一键烧录！
 
-## Customisation
+### 方式二：命令行编译与烧录
+```bash
+# 1. 克隆或进入项目根目录
+git clone https://github.com/xukuncai-hub/clawd-mochi.git
+cd clawd-mochi
 
-All configuration constants are near the top of `clawd_mochi/clawd_mochi.ino`:
+# 2. 编译固件
+pio run
 
-### WiFi & Connectivity
-```cpp
-const char* AP_SSID = "ClaWD-Mochi";   // WiFi hotspot name
-const char* AP_PASS = "clawd1234";     // WiFi hotspot password
-const char* STA_SSID = "";             // home WiFi name (optional)
-const char* STA_PASS = "";             // home WiFi password (optional)
-```
+# 3. 连接开发板后一键上传
+pio run -t upload
 
-### Location & Weather
-```cpp
-#define MY_LAT          30.19     // your latitude (0 = auto-detect)
-#define MY_LON          105.84    // your longitude (0 = auto-detect)
-#define MY_CITY_NAME    "Chongqing"  // displayed on screen
-#define MY_CITY         ""        // city name for geocoding (only when MY_LAT=0)
-#define MY_TZ_OFFSET    8         // UTC offset: China=8, Japan=9, UK=0, US/East=-5
-```
-
-### Eye size and position
-```cpp
-#define EYE_W   30    // eye width in pixels
-#define EYE_H   60    // eye height in pixels
-#define EYE_GAP 120   // gap between eyes
-#define EYE_OX  0     // horizontal offset
-#define EYE_OY  40    // vertical offset upward
-```
-
-### Buzzer
-Connect a passive buzzer to GPIO 6 for alarm and timer sounds:
-```cpp
-#define BUZZER  6     // buzzer pin (GPIO 6, safe during boot)
+# 4. 开启串口调试监视器 (115200 波特率)
+pio device monitor
 ```
 
 ---
 
-## Contributing
+## 📂 仓库目录结构
 
-Contributions are very welcome! Here are some ideas:
+```text
+clawd-mochi/
+├── CMakeLists.txt                 # ESP-IDF 顶级构建配置
+├── platformio.ini                 # PlatformIO 工程环境配置文件
+├── sdkconfig.airm2m_core_esp32c3  # ESP32-C3 核心板配置
+├── src/                           # 固件核心源码
+│   ├── main.c                     # 主程序入口、按键轮询与特效调度
+│   ├── display.c / display.h      # ST7789 高性能 DMA SPI 驱动与图形基元
+│   ├── wifi_app.c / wifi_app.h    # 独立 WiFi AP Web 服务器与控制台网页
+│   ├── alarm_timer.c / alarm_timer.h # 智能闹钟与番茄倒计时逻辑
+│   ├── effects.h                  # 17 款动态特效接口定义
+│   ├── fx_*.c                     # 17 个独立特效实现文件
+│   ├── fast_math.c / fast_math.h  # 快速正余弦定点数数学库
+│   ├── font.c / font.h            # 极客风格等宽点阵字体库
+│   └── CMakeLists.txt             # 源码组件注册
+├── models/                        # 3D 打印外壳模型 STL 文件
+├── pics/                          # 项目实物图片与展示素材
+├── legacy/                        # 历史归档
+│   └── arduino/                   # 原版 Arduino 历史固件备份
+├── LICENSE                        # MIT 开源协议
+└── README.md                      # 项目说明文档
+```
 
-- **New animations** — add new expressions, transitions, or idle behaviors
-- **New views** — weather display, clock, notification badges, pixel art scenes
-- **Sound** — add a small buzzer for sound effects
-- **Sensors** — connect a touch sensor or button for physical interaction
-- **OTA updates** — add over-the-air firmware updates
-- **MQTT / Home Assistant** — connect to smart home platforms
+---
 
-To contribute: fork the repo, make your changes, and open a pull request. Please keep the single-file structure (`clawd_mochi.ino`) so it stays easy for beginners to flash.
+## 📄 开源协议 (License)
 
-## License
-
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
-**Note:** 3D models and media assets are licensed under **CC BY-NC-SA 4.0**.
+本项目采用 [MIT License](LICENSE) 开源协议，欢迎自由 Fork、修改、制作以及二次创作！
