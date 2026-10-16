@@ -19,7 +19,7 @@
 
 static const char *TAG = "WIFI_APP";
 
-#define WIFI_AP_SSID "ClaWD-Mochi"
+#define WIFI_AP_SSID "ClawdMochi-PRO"
 #define WIFI_AP_PASS "clawd1234"
 
 static WebControlBridge g_bridge = {
@@ -837,6 +837,7 @@ void wifi_app_init(void) {
     // 3. 配置并启动 Wi-Fi SoftAP 热点模式 (标准 WPA2-PSK AES-CCMP，无 PMF 强校验，全球移动设备100%兼容)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 
     wifi_config_t wifi_config = {
         .ap = {
