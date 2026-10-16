@@ -115,8 +115,8 @@ void app_main(void) {
 
     // 开机首屏展示 Wi-Fi 热点连接提示 (4 秒)
     int64_t custom_osd_until = last_time + 4000000LL;
-    char osd_custom_title[32] = "» WIFI: Mochi-Arcade «";
-    char osd_custom_sub[32] = "免密直连 192.168.4.1";
+    char osd_custom_title[32] = "» WIFI: Mochi-Retro «";
+    char osd_custom_sub[32] = "密码: 12345678";
     int64_t osd_until = 0;
 
     bool btn_last_state = true;
@@ -324,13 +324,7 @@ void app_main(void) {
             fps_timer = now;
         }
 
-        // 9. 智能动态让步调度：在保持看门狗与高优先级 WiFi 畅通的前提下释放最高帧率
-        static int yield_counter = 0;
-        if (++yield_counter >= 4) {
-            yield_counter = 0;
-            vTaskDelay(1); // 每 4 帧让步 1 个 Tick 喂狗并提供低优先级任务执行窗口
-        } else {
-            taskYIELD(); // 其余帧零延迟让步，彻底释放 60 FPS 流畅潜能
-        }
+        // 9. 稳定调度：每帧让步 1 个 Tick (10ms)，确保单核 ESP32-C3 的 WiFi/DHCP 协议栈与 WebServer 畅通无阻
+        vTaskDelay(1);
     }
 }

@@ -19,8 +19,8 @@
 
 static const char *TAG = "WIFI_APP";
 
-#define WIFI_AP_SSID "Mochi-Arcade"
-#define WIFI_AP_PASS ""  // 开放热点，免密直连，开箱即用
+#define WIFI_AP_SSID "Mochi-Retro"
+#define WIFI_AP_PASS "12345678"  // 标准纯净 WPA2-PSK 密码，彻底杜绝开放网络安全策略拦截
 
 static WebControlBridge g_bridge = {
     .current_effect_idx = 0,
@@ -749,8 +749,9 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
         ESP_LOGW(TAG, ">>> [WIFI] 手机断开连接! MAC: %02x:%02x:%02x:%02x:%02x:%02x, AID: %d, 原因: %d",
                  event->mac[0], event->mac[1], event->mac[2], event->mac[3], event->mac[4], event->mac[5], event->aid, event->reason);
-    } else if (event_base == IP_EVENT) {
-        ESP_LOGI(TAG, ">>> [DHCP] 手机成功获取 IP 地址并接入网络");
+    } else if (event_base == IP_EVENT && event_id == IP_EVENT_ASSIGNED_IP_TO_CLIENT) {
+        ip_event_got_ip_t *event = (ip_event_got_ip_t *) event_data;
+        ESP_LOGI(TAG, ">>> [DHCP] ★ 手机成功获取 IP: " IPSTR, IP2STR(&event->ip_info.ip));
     }
 }
 
@@ -827,8 +828,8 @@ void wifi_app_init(void) {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    // 创建 AP netif (默认网关与静态 IP 均为 192.168.4.1，DHCP 服务器自动管理)
-    esp_netif_create_default_wifi_ap();
+    // 创建 AP netif (默认网关与静态 IP 均为 192.168.4.1)
+    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
 
     // 注册网络事件监视器
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
@@ -843,17 +844,17 @@ void wifi_app_init(void) {
         .ap = {
             .ssid = WIFI_AP_SSID,
             .ssid_len = strlen(WIFI_AP_SSID),
-            .channel = 6,
+            .channel = 1,
             .max_connection = 4,
-            .authmode = WIFI_AUTH_OPEN,
+            .authmode = WIFI_AUTH_WPA2_PSK,
+            .pairwise_cipher = WIFI_CIPHER_TYPE_CCMP,
+            .pmf_cfg = {
+                .capable = false,
+                .required = false,
+            },
         },
     };
-
-    if (strlen(WIFI_AP_PASS) > 0) {
-        wifi_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
-        strncpy((char *)wifi_config.ap.password, WIFI_AP_PASS, sizeof(wifi_config.ap.password));
-        wifi_config.ap.pairwise_cipher = WIFI_CIPHER_TYPE_CCMP;
-    }
+    strncpy((char *)wifi_config.ap.password, WIFI_AP_PASS, sizeof(wifi_config.ap.password));
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
@@ -863,6 +864,29 @@ void wifi_app_init(void) {
 
     // 禁用 Wi-Fi 省电模式，确保天线最大射频功率与手机稳定长连接
     esp_wifi_set_ps(WIFI_PS_NONE);
+
+    // ★★★ 关键修复：在 Wi-Fi 启动后配置 DHCP 服务器下发 DNS 地址 ★★★
+    // 必须在 esp_wifi_start() 之后！此时 lwip netif 才真正创建，DHCPS 才能正确运行。
+    // ESP-IDF 默认 DHCPS 不发送 DNS Option 6，手机收不到 DNS 判定网络无效，
+    // 2 秒后主动断开 (reason=1)，在手机端表现为 "拒绝接入"
+    {
+        ESP_ERROR_CHECK(esp_netif_dhcps_stop(ap_netif));
+
+        // 启用 DHCP DNS Offer (OFFER_DNS = 0x02)
+        uint8_t dhcps_offer_dns = 0x02;
+        ESP_ERROR_CHECK(esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET,
+            ESP_NETIF_DOMAIN_NAME_SERVER, &dhcps_offer_dns, sizeof(dhcps_offer_dns)));
+
+        // DNS 服务器指向 AP 自身 IP (192.168.4.1)，配合 UDP 53 captive DNS 劫持
+        esp_netif_dns_info_t dns_info;
+        memset(&dns_info, 0, sizeof(dns_info));
+        dns_info.ip.u_addr.ip4.addr = ESP_IP4TOADDR(192, 168, 4, 1);
+        dns_info.ip.type = ESP_IPADDR_TYPE_V4;
+        ESP_ERROR_CHECK(esp_netif_set_dns_info(ap_netif, ESP_NETIF_DNS_MAIN, &dns_info));
+
+        ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
+        ESP_LOGI(TAG, "DHCP Server 已配置: DNS=192.168.4.1, 地址池就绪");
+    }
 
     ESP_LOGI(TAG, "==================================================");
     ESP_LOGI(TAG, "  Wi-Fi AP Started! SSID: [%s]", WIFI_AP_SSID);
