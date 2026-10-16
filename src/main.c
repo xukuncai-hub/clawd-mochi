@@ -115,8 +115,8 @@ void app_main(void) {
 
     // 开机首屏展示 Wi-Fi 热点连接提示 (4 秒)
     int64_t custom_osd_until = last_time + 4000000LL;
-    char osd_custom_title[32] = "» WIFI: ClawdMochi «";
-    char osd_custom_sub[32] = "手机连WiFi开 192.168.4.1";
+    char osd_custom_title[32] = "» WIFI: ClaWD-Mochi «";
+    char osd_custom_sub[32] = "密码:clawd1234 4.1";
     int64_t osd_until = 0;
 
     bool btn_last_state = true;

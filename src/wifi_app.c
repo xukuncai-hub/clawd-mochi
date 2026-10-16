@@ -15,11 +15,12 @@
 #include "nvs_flash.h"
 #include "esp_netif.h"
 #include "esp_http_server.h"
+#include "lwip/sockets.h"
 
 static const char *TAG = "WIFI_APP";
 
-#define WIFI_AP_SSID "ClawdMochi"
-#define WIFI_AP_PASS "" // 开放热点，手机连接无需输密，开箱即用
+#define WIFI_AP_SSID "ClaWD-Mochi"
+#define WIFI_AP_PASS "clawd1234"
 
 static WebControlBridge g_bridge = {
     .current_effect_idx = 0,
@@ -664,11 +665,100 @@ static esp_err_t api_control_handler(httpd_req_t *req) {
     return httpd_resp_send(req, "{\"status\":\"ok\"}", HTTPD_RESP_USE_STRLEN);
 }
 
+// Captive Portal 重定向处理器 (手机连入自动弹出或探测联网时跳转主页)
+static esp_err_t captive_portal_handler(httpd_req_t *req) {
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+// 嵌入式简易 DNS 服务器：将所有域名请求解析为 192.168.4.1 (实现免外网强制门户)
+static void dns_server_task(void *pvParameters) {
+    struct sockaddr_in server_addr;
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (sock < 0) {
+        ESP_LOGE(TAG, "DNS socket creation failed");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    server_addr.sin_port = htons(53);
+
+    if (bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        ESP_LOGE(TAG, "DNS socket bind failed");
+        close(sock);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ESP_LOGI(TAG, "Captive DNS server running on port 53");
+
+    uint8_t rx_buffer[256];
+    struct sockaddr_in source_addr;
+    socklen_t socklen = sizeof(source_addr);
+
+    while (1) {
+        int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer), 0, (struct sockaddr *)&source_addr, &socklen);
+        if (len > 12) {
+            rx_buffer[2] |= 0x80; // QR = 1 (Response)
+            rx_buffer[3] = 0x80; // RA = 1
+            rx_buffer[7] = 1;    // ANCOUNT = 1
+
+            int q_end = 12;
+            while (q_end < len && rx_buffer[q_end] != 0) {
+                q_end += rx_buffer[q_end] + 1;
+            }
+            q_end += 5;
+
+            if (q_end <= len && q_end + 16 < sizeof(rx_buffer)) {
+                rx_buffer[q_end++] = 0xC0;
+                rx_buffer[q_end++] = 0x0C;
+                rx_buffer[q_end++] = 0x00; // TYPE A
+                rx_buffer[q_end++] = 0x01;
+                rx_buffer[q_end++] = 0x00; // CLASS IN
+                rx_buffer[q_end++] = 0x01;
+                rx_buffer[q_end++] = 0x00; // TTL: 60s
+                rx_buffer[q_end++] = 0x00;
+                rx_buffer[q_end++] = 0x00;
+                rx_buffer[q_end++] = 0x3C;
+                rx_buffer[q_end++] = 0x00; // RDLENGTH: 4
+                rx_buffer[q_end++] = 0x04;
+                rx_buffer[q_end++] = 192;  // 192.168.4.1
+                rx_buffer[q_end++] = 168;
+                rx_buffer[q_end++] = 4;
+                rx_buffer[q_end++] = 1;
+
+                sendto(sock, rx_buffer, q_end, 0, (struct sockaddr *)&source_addr, socklen);
+            }
+        }
+    }
+}
+
+// Wi-Fi 及网络事件监视
+static void wifi_event_handler(void* arg, esp_event_base_t event_base,
+                               int32_t event_id, void* event_data) {
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
+        wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
+        ESP_LOGI(TAG, ">>> [WIFI] 手机已连入热点! MAC: %02x:%02x:%02x:%02x:%02x:%02x, AID: %d",
+                 event->mac[0], event->mac[1], event->mac[2], event->mac[3], event->mac[4], event->mac[5], event->aid);
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+        wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
+        ESP_LOGW(TAG, ">>> [WIFI] 手机断开连接! MAC: %02x:%02x:%02x:%02x:%02x:%02x, AID: %d, 原因: %d",
+                 event->mac[0], event->mac[1], event->mac[2], event->mac[3], event->mac[4], event->mac[5], event->aid, event->reason);
+    } else if (event_base == IP_EVENT) {
+        ESP_LOGI(TAG, ">>> [DHCP] 手机成功获取 IP 地址并接入网络");
+    }
+}
+
 static httpd_handle_t start_webserver(void) {
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = 20;
 
     ESP_LOGI(TAG, "Starting HTTP Server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
@@ -699,6 +789,12 @@ static httpd_handle_t start_webserver(void) {
         httpd_uri_t ctrl_uri = { .uri = "/api/control", .method = HTTP_POST, .handler = api_control_handler, .user_ctx = NULL };
         httpd_register_uri_handler(server, &ctrl_uri);
 
+        // 手机连接探测重定向
+        httpd_uri_t cp1 = { .uri = "/generate_204", .method = HTTP_GET, .handler = captive_portal_handler, .user_ctx = NULL };
+        httpd_register_uri_handler(server, &cp1);
+        httpd_uri_t cp2 = { .uri = "/hotspot-detect.html", .method = HTTP_GET, .handler = captive_portal_handler, .user_ctx = NULL };
+        httpd_register_uri_handler(server, &cp2);
+
         return server;
     }
     ESP_LOGE(TAG, "Error starting server!");
@@ -719,7 +815,20 @@ void wifi_app_init(void) {
     // 2. 初始化 TCP/IP 网络堆栈
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_ap();
+
+    // 创建 AP netif 并显式固定静态 IP 192.168.4.1 与配置 DHCP 服务器
+    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
+    esp_netif_ip_info_t ip_info;
+    IP4_ADDR(&ip_info.ip, 192, 168, 4, 1);
+    IP4_ADDR(&ip_info.gw, 192, 168, 4, 1);
+    IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
+    esp_netif_dhcps_stop(ap_netif);
+    esp_netif_set_ip_info(ap_netif, &ip_info);
+    esp_netif_dhcps_start(ap_netif);
+
+    // 注册网络事件监视器
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, &wifi_event_handler, NULL, NULL));
 
     // 3. 配置并启动 Wi-Fi SoftAP 热点模式
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -732,7 +841,10 @@ void wifi_app_init(void) {
             .channel = 1,
             .password = WIFI_AP_PASS,
             .max_connection = 4,
-            .authmode = WIFI_AUTH_OPEN
+            .authmode = WIFI_AUTH_WPA_WPA2_PSK,
+            .pmf_cfg = {
+                .required = false,
+            },
         },
     };
 
@@ -740,11 +852,18 @@ void wifi_app_init(void) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    // 禁用 Wi-Fi 省电模式，确保天线最大射频功率与手机稳定长连接
+    esp_wifi_set_ps(WIFI_PS_NONE);
+
     ESP_LOGI(TAG, "==================================================");
     ESP_LOGI(TAG, "  Wi-Fi AP Started! SSID: [%s]", WIFI_AP_SSID);
-    ESP_LOGI(TAG, "  Web Control URL : http://192.168.4.1");
+    ESP_LOGI(TAG, "  Wi-Fi Password        : [%s]", WIFI_AP_PASS);
+    ESP_LOGI(TAG, "  Web Control URL       : http://192.168.4.1");
     ESP_LOGI(TAG, "==================================================");
 
     // 4. 启动轻量级 HTTP Web 服务器
     start_webserver();
+
+    // 5. 启动简易 DNS 强制门户解析服务 (UDP 53)
+    xTaskCreate(dns_server_task, "dns_server", 3072, NULL, 3, NULL);
 }
