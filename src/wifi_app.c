@@ -20,7 +20,7 @@
 static const char *TAG = "WIFI_APP";
 
 #define WIFI_AP_SSID "ClawdMochi-PRO"
-#define WIFI_AP_PASS "clawd1234"
+#define WIFI_AP_PASS ""  // 开放热点，免密直连，开箱即用
 
 static WebControlBridge g_bridge = {
     .current_effect_idx = 0,
@@ -834,7 +834,7 @@ void wifi_app_init(void) {
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_ASSIGNED_IP_TO_CLIENT, &wifi_event_handler, NULL, NULL));
 
-    // 3. 配置并启动 Wi-Fi SoftAP 热点模式 (标准 WPA2-PSK AES-CCMP，无 PMF 强校验，全球移动设备100%兼容)
+    // 3. 配置并启动 Wi-Fi SoftAP 热点模式 (免密开放热点 + 强制门户，杜绝一切手机鉴权拒绝)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
@@ -844,19 +844,21 @@ void wifi_app_init(void) {
             .ssid = WIFI_AP_SSID,
             .ssid_len = strlen(WIFI_AP_SSID),
             .channel = 1,
-            .password = WIFI_AP_PASS,
             .max_connection = 4,
-            .authmode = WIFI_AUTH_WPA2_PSK,
-            .pairwise_cipher = WIFI_CIPHER_TYPE_CCMP,
-            .pmf_cfg = {
-                .capable = false,
-                .required = false,
-            },
+            .authmode = WIFI_AUTH_OPEN,
         },
     };
 
+    if (strlen(WIFI_AP_PASS) > 0) {
+        wifi_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
+        strncpy((char *)wifi_config.ap.password, WIFI_AP_PASS, sizeof(wifi_config.ap.password));
+        wifi_config.ap.pairwise_cipher = WIFI_CIPHER_TYPE_CCMP;
+    }
+
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW20));
+    ESP_ERROR_CHECK(esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N));
     ESP_ERROR_CHECK(esp_wifi_start());
 
     // 禁用 Wi-Fi 省电模式，确保天线最大射频功率与手机稳定长连接
@@ -864,7 +866,10 @@ void wifi_app_init(void) {
 
     ESP_LOGI(TAG, "==================================================");
     ESP_LOGI(TAG, "  Wi-Fi AP Started! SSID: [%s]", WIFI_AP_SSID);
-    ESP_LOGI(TAG, "  Wi-Fi Password        : [%s]", WIFI_AP_PASS);
+    ESP_LOGI(TAG, "  Wi-Fi Auth Mode       : [%s]", (wifi_config.ap.authmode == WIFI_AUTH_OPEN) ? "OPEN (免密直连)" : "WPA2-PSK");
+    if (strlen(WIFI_AP_PASS) > 0) {
+        ESP_LOGI(TAG, "  Wi-Fi Password        : [%s]", WIFI_AP_PASS);
+    }
     ESP_LOGI(TAG, "  Web Control URL       : http://192.168.4.1");
     ESP_LOGI(TAG, "==================================================");
 
