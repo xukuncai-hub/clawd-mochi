@@ -1,151 +1,108 @@
 #include "effects.h"
 #include "fast_math.h"
 #include <string.h>
-#include <stdlib.h>
+#include <math.h>
 
-#define HORIZON_Y 110
-#define NUM_GRID_LINES 18
-#define NUM_SYNTH_STARS 24
+#define TERRAIN_COLS 16
+#define TERRAIN_ROWS 10
 
-static float grid_scroll = 0.0f;
-static float sun_pulse = 0.0f;
+static float anim_time = 0.0f;
 
 static void synthwave_init(void) {
-    grid_scroll = 0.0f;
-    sun_pulse = 0.0f;
+    anim_time = 0.0f;
 }
 
 static void synthwave_cleanup(void) {
 }
 
 static void synthwave_update(float dt) {
-    (void)dt;
-    grid_scroll += 0.055f;
-    if (grid_scroll >= 1.0f) grid_scroll -= 1.0f;
-
-    sun_pulse += 0.04f;
-    if (sun_pulse > 2.0f * FAST_PI) sun_pulse -= 2.0f * FAST_PI;
+    anim_time += dt;
 }
 
 static void synthwave_render(uint16_t *fb) {
-    // 1. 天空渐变 (暗黑紫过渡至地平线暗红霓虹)
-    for (int y = 0; y < HORIZON_Y; y++) {
-        float f = (float)y / (float)HORIZON_Y;
-        uint8_t r = (uint8_t)(45 * f * f);
-        uint8_t g = (uint8_t)(10 * f);
-        uint8_t b = (uint8_t)(35 + 40 * f);
-        uint16_t sky_col = rgb565(r, g, b);
-        uint32_t c32 = ((uint32_t)sky_col << 16) | sky_col;
-        uint32_t *row = (uint32_t *)(fb + y * DISP_W);
-        for (int x = 0; x < DISP_W / 2; x++) {
-            row[x] = c32;
-        }
+    memset(fb, 0, DISP_W * DISP_H * sizeof(uint16_t));
+    int cx = DISP_W / 2;
+    int horizon_y = 100;
+
+    // 1. 上半部深空渐变与璀璨霓虹落日 (带有横向盲盒切片扫描)
+    for (int y = 0; y < horizon_y; y++) {
+        uint8_t r = (uint8_t)(y * 0.45f);
+        uint8_t b = (uint8_t)(35 + y * 0.5f);
+        display_fill_rect(fb, 0, y, DISP_W, 1, rgb565(r, 0, b));
     }
 
-    // 2. 闪烁霓虹星光 (天空区域)
-    for (int i = 0; i < NUM_SYNTH_STARS; i++) {
-        int sx = (i * 37 + 13) % (DISP_W - 10) + 5;
-        int sy = (i * 19 + 7) % (HORIZON_Y - 30) + 5;
-        float twinkle = fast_sin(sun_pulse * 1.5f + (float)i);
-        if (twinkle > 0.3f) {
-            uint16_t star_c = (twinkle > 0.85f) ? COLOR_WHITE : rgb565(140, 160, 255);
-            fb[sy * DISP_W + sx] = star_c;
-        }
-    }
+    // 绘制 80s 经典赛博落日
+    int sun_r = 38;
+    int sun_cy = horizon_y - 10;
+    for (int y = sun_cy - sun_r; y <= horizon_y; y++) {
+        if (y < 0) continue;
+        int dy = y - sun_cy;
+        int dx = (int)sqrtf((float)(sun_r * sun_r - dy * dy));
 
-    // 3. 绘制复古巨型霓虹落日 (中心 120, 85, 半径 38)
-    const int sun_cx = 120;
-    const int sun_cy = 85;
-    const int sun_r = 38;
-    int r2 = sun_r * sun_r;
+        // 越往下切片越宽
+        int slice_phase = (y + (int)(anim_time * 20.0f)) % 9;
+        if (y > sun_cy && slice_phase < 3) continue; // 黑色水平光栅横纹
 
-    for (int dy = -sun_r; dy <= sun_r; dy++) {
-        int py = sun_cy + dy;
-        if (py < 0 || py >= HORIZON_Y) continue;
-
-        // 经典百叶窗水平条纹 (在落日下半部逐渐加宽)
-        if (dy > 0) {
-            int stripe = (dy + (int)(sun_pulse * 4.0f)) % 9;
-            int cutoff = 2 + (dy * 5) / sun_r;
-            if (stripe < cutoff) {
-                continue; // 镂空黑条
-            }
-        }
-
-        int dx_max = (int)sqrtf((float)(r2 - dy * dy));
-        float t = (float)(dy + sun_r) / (float)(2 * sun_r);
-
-        // 垂直渐变：上部炽金黄 -> 下部荧光粉紫
+        float factor = (float)(y - (sun_cy - sun_r)) / (float)(sun_r * 2);
         uint8_t sr = 255;
-        uint8_t sg = (uint8_t)(240 * (1.0f - t) + 20 * t);
-        uint8_t sb = (uint8_t)(40 * (1.0f - t) + 200 * t);
-        uint16_t sun_col = rgb565(sr, sg, sb);
+        uint8_t sg = (uint8_t)(240.0f * (1.0f - factor * 0.8f));
+        uint8_t sb = (uint8_t)(40.0f + 160.0f * factor);
+        display_draw_line(fb, cx - dx, y, cx + dx, y, rgb565(sr, sg, sb));
+    }
 
-        for (int px = sun_cx - dx_max; px <= sun_cx + dx_max; px++) {
-            if (px >= 0 && px < DISP_W) {
-                fb[py * DISP_W + px] = sun_col;
-            }
+    // 地平线高光激光条
+    display_fill_rect(fb, 0, horizon_y, DISP_W, 2, rgb565(0, 240, 255));
+
+    // 2. 下半部 3D 动态波浪地形曲面网格 (Terrain Wave Mesh)
+    static int px[TERRAIN_ROWS][TERRAIN_COLS];
+    static int py[TERRAIN_ROWS][TERRAIN_COLS];
+
+    float col_w = 260.0f / (float)(TERRAIN_COLS - 1);
+
+    for (int r = 0; r < TERRAIN_ROWS; r++) {
+        float depth = (float)(r + 1) / (float)TERRAIN_ROWS; // 0.1 ~ 1.0
+        float z_scale = depth * depth; // 非线性透视
+
+        float cur_y_base = (float)horizon_y + z_scale * (float)(DISP_H - horizon_y);
+        float width_scale = 0.25f + 0.95f * z_scale;
+
+        for (int c = 0; c < TERRAIN_COLS; c++) {
+            float x0 = ((float)c - (float)(TERRAIN_COLS - 1) * 0.5f) * col_w * width_scale;
+
+            // 地形起伏正弦波浪 (两侧山峰高，中间公路平坦)
+            float side_factor = fabsf((float)c - (float)(TERRAIN_COLS - 1) * 0.5f);
+            float mountain = (side_factor > 2.5f) ? (side_factor * 2.8f) : 0.0f;
+            float wave = mountain * sinf(anim_time * 4.0f - (float)r * 0.65f);
+
+            px[r][c] = cx + (int)x0;
+            py[r][c] = (int)(cur_y_base - wave);
         }
     }
 
-    // 4. 地平线暗夜山脉剪影 (两侧黑紫山峰)
-    static const int mountain_pts[][2] = {
-        {0, 110}, {25, 96}, {55, 105}, {75, 92}, {95, 110},
-        {145, 110}, {165, 94}, {190, 104}, {215, 95}, {240, 110}
-    };
-    uint16_t mtn_line = rgb565(140, 0, 180);
-    for (int i = 0; i < 4; i++) {
-        display_draw_line(fb, mountain_pts[i][0], mountain_pts[i][1], mountain_pts[i+1][0], mountain_pts[i+1][1], mtn_line);
-    }
-    for (int i = 5; i < 9; i++) {
-        display_draw_line(fb, mountain_pts[i][0], mountain_pts[i][1], mountain_pts[i+1][0], mountain_pts[i+1][1], mtn_line);
-    }
+    // 绘制横向起伏网格线 (向近处扑面而来)
+    for (int r = 0; r < TERRAIN_ROWS; r++) {
+        float depth = (float)(r + 1) / (float)TERRAIN_ROWS;
+        uint8_t val = (uint8_t)(depth * 255.0f);
+        uint16_t col = rgb565(val, 0, (uint8_t)(val * 0.85f)); // 霓虹粉紫
 
-    // 5. 地平线暗夜地面清除
-    for (int y = HORIZON_Y; y < DISP_H; y++) {
-        uint32_t *row = (uint32_t *)(fb + y * DISP_W);
-        for (int x = 0; x < DISP_W / 2; x++) {
-            row[x] = 0;
+        for (int c = 0; c < TERRAIN_COLS - 1; c++) {
+            display_draw_line(fb, px[r][c], py[r][c], px[r][c + 1], py[r][c + 1], col);
         }
     }
 
-    // 6. 绘制透视纵深网格线 (向地平线收敛)
-    for (int i = -8; i <= 8; i++) {
-        int bottom_x = 120 + i * 26;
-        int top_x = 120 + i * 2;
-        display_draw_line(fb, top_x, HORIZON_Y, bottom_x, DISP_H - 1, rgb565(20, 160, 240));
-    }
-
-    // 7. 绘制向前滚动的横向透视网格线 (距离越近间隔越大、越明亮)
-    for (int i = 0; i < NUM_GRID_LINES; i++) {
-        float norm_d = (float)i + grid_scroll;
-        float depth = norm_d / (float)NUM_GRID_LINES;
-        // 指数透视投影
-        int y = HORIZON_Y + (int)((float)(DISP_H - 1 - HORIZON_Y) * (depth * depth));
-        if (y >= HORIZON_Y && y < DISP_H) {
-            uint8_t intensity = (uint8_t)(60 + 195 * depth);
-            uint16_t line_col = rgb565(intensity, 0, (uint8_t)(intensity * 0.9f));
-            uint32_t c32 = ((uint32_t)line_col << 16) | line_col;
-            uint32_t *row = (uint32_t *)(fb + y * DISP_W);
-            for (int x = 0; x < DISP_W / 2; x++) {
-                row[x] = c32;
-            }
+    // 绘制纵向透视网格线 (从地平线放射延伸)
+    for (int c = 0; c < TERRAIN_COLS; c++) {
+        uint16_t line_col = (c == TERRAIN_COLS / 2 || c == TERRAIN_COLS / 2 - 1) ? rgb565(0, 240, 255) : rgb565(0, 150, 210);
+        for (int r = 0; r < TERRAIN_ROWS - 1; r++) {
+            display_draw_line(fb, px[r][c], py[r][c], px[r + 1][c], py[r + 1][c], line_col);
         }
-    }
-
-    // 8. 地平线强光高亮霓虹线
-    uint16_t horizon_col = rgb565(120, 255, 255);
-    uint32_t h32 = ((uint32_t)horizon_col << 16) | horizon_col;
-    uint32_t *hrow = (uint32_t *)(fb + HORIZON_Y * DISP_W);
-    for (int x = 0; x < DISP_W / 2; x++) {
-        hrow[x] = h32;
     }
 }
 
 Effect fx_synthwave = {
     .id = "synthwave",
-    .title = "» CYBER SYNTHWAVE «",
-    .subtitle = "赛博朋克 80s 霓虹落日与透视网格",
+    .title = "赛博朋克霓虹落日",
+    .subtitle = "3D动态合成波山脉地形曲面网格与落日",
     .init = synthwave_init,
     .update = synthwave_update,
     .render = synthwave_render,

@@ -1,117 +1,103 @@
 #include "effects.h"
 #include "fast_math.h"
 #include <string.h>
-#include <stdlib.h>
+#include <math.h>
 
-#define NUM_GALAXY_STARS 220
+#define GALAXY_ARMS 4
+#define PTS_PER_ARM 32
 
-typedef struct {
-    float dist;
-    float base_angle;
-    float arm_offset;
-    float z_offset;
-    float speed;
-    uint16_t color;
-    uint8_t size;
-} GalaxyStar;
-
-static GalaxyStar stars[NUM_GALAXY_STARS];
-static float galaxy_rot = 0.0f;
-static float tilt_pitch = 0.65f; // 倾角视角
+static float anim_time = 0.0f;
+static float gal_rot = 0.0f;
 
 static void galaxy_init(void) {
-    galaxy_rot = 0.0f;
-    for (int i = 0; i < NUM_GALAXY_STARS; i++) {
-        // 双主旋臂对映：0 或 PI
-        float arm = (i % 2 == 0) ? 0.0f : FAST_PI;
-        float d = 8.0f + (float)(fast_rand() % 98);
-        stars[i].dist = d;
-        stars[i].base_angle = arm + (d * 0.055f); // 对数旋臂展角
-        stars[i].arm_offset = ((float)(fast_rand() % 100) - 50.0f) * 0.006f;
-        stars[i].z_offset = ((float)(fast_rand() % 100) - 50.0f) * 0.12f;
-        stars[i].speed = 1.6f / sqrtf(d); // 旋转曲线速度
-
-        // 根据与核球距离决定星体光谱颜色
-        if (d < 22.0f) {
-            // 核心高密核球 (炽白与金黄)
-            stars[i].color = (fast_rand() % 3 == 0) ? COLOR_WHITE : rgb565(255, 230, 110);
-            stars[i].size = 2;
-        } else if (d < 65.0f) {
-            // 旋臂主序恒星 (荧光青与湛蓝)
-            stars[i].color = (fast_rand() % 2 == 0) ? rgb565(0, 240, 255) : rgb565(80, 150, 255);
-            stars[i].size = 1;
-        } else {
-            // 外缘星际尘埃与红矮星 (紫粉与暗红)
-            stars[i].color = (fast_rand() % 2 == 0) ? rgb565(240, 60, 200) : rgb565(180, 40, 120);
-            stars[i].size = 1;
-        }
-    }
+    anim_time = 0.0f;
+    gal_rot = 0.0f;
 }
 
 static void galaxy_cleanup(void) {
 }
 
 static void galaxy_update(float dt) {
-    (void)dt;
-    galaxy_rot += 0.038f;
-    if (galaxy_rot > 2.0f * FAST_PI) galaxy_rot -= 2.0f * FAST_PI;
+    anim_time += dt;
+    gal_rot += dt * 0.95f;
 }
 
 static void galaxy_render(uint16_t *fb) {
     memset(fb, 0, DISP_W * DISP_H * sizeof(uint16_t));
+    int cx = DISP_W / 2;
+    int cy = DISP_H / 2;
 
-    const int cx = 120;
-    const int cy = 120;
+    float tilt = 0.52f; // 倾角透视
+    float cos_tilt = cosf(tilt);
 
-    float cos_pitch = fast_cos(tilt_pitch);
-    float sin_pitch = fast_sin(tilt_pitch);
+    // 1. 绘制 4 条绚烂的引力密度波对数螺旋臂 (Logarithmic Spiral Arms)
+    for (int arm = 0; arm < GALAXY_ARMS; arm++) {
+        float arm_phase = gal_rot + (float)arm * (2.0f * FAST_PI / (float)GALAXY_ARMS);
 
-    // 1. 绘制极向相对论喷流 (中心垂直射出的细长微弱极光)
-    for (int j = -35; j <= 35; j++) {
-        int py = cy + (int)((float)j * cos_pitch);
-        int px = cx - (int)((float)j * sin_pitch * 0.15f);
-        if (px >= 0 && px < DISP_W && py >= 0 && py < DISP_H) {
-            fb[py * DISP_W + px] = rgb565(80, 160, 255);
-        }
-    }
+        int last_x = 0, last_y = 0;
 
-    // 2. 绘制 220 颗 3D 旋转银河恒星
-    for (int i = 0; i < NUM_GALAXY_STARS; i++) {
-        float cur_angle = stars[i].base_angle + stars[i].arm_offset + galaxy_rot * stars[i].speed * 1.5f;
-        float x_plane = stars[i].dist * fast_cos(cur_angle);
-        float y_plane = stars[i].dist * fast_sin(cur_angle);
-        float z_plane = stars[i].z_offset;
+        for (int p = 0; p < PTS_PER_ARM; p++) {
+            float t = (float)(p + 1) / (float)PTS_PER_ARM;
+            float rad = 14.0f + 96.0f * t;
+            // 对数螺线展开角 (开普勒旋转剪切)
+            float theta = arm_phase + t * 3.6f;
 
-        // 3D 俯仰视角投影
-        float x_proj = x_plane;
-        float y_proj = y_plane * cos_pitch - z_plane * sin_pitch;
+            int sx = cx + (int)(rad * cosf(theta));
+            int sy = cy + (int)(rad * sinf(theta) * cos_tilt);
 
-        int sx = cx + (int)x_proj;
-        int sy = cy + (int)y_proj;
+            if (p > 0) {
+                uint8_t hue = (uint8_t)((int)(anim_time * 25.0f + arm * 40 + p * 5) & 0xFF);
+                uint8_t val = (uint8_t)(255.0f * (1.0f - t * 0.4f));
+                uint16_t col = hsv2rgb565(hue, 220, val);
 
-        if (sx >= 1 && sx < DISP_W - 1 && sy >= 1 && sy < DISP_H - 1) {
-            uint16_t c = stars[i].color;
-            fb[sy * DISP_W + sx] = c;
-            if (stars[i].size > 1) {
-                fb[sy * DISP_W + sx + 1] = c;
-                fb[(sy + 1) * DISP_W + sx] = c;
-                fb[(sy + 1) * DISP_W + sx + 1] = c;
+                display_draw_line(fb, last_x, last_y, sx, sy, col);
+
+                // 伴随的亮星团节点
+                if (p % 3 == 0) {
+                    display_draw_pixel(fb, sx, sy, COLOR_WHITE);
+                    display_draw_pixel(fb, sx + 1, sy, col);
+                }
             }
+            last_x = sx;
+            last_y = sy;
         }
     }
 
-    // 3. 中心核球超密集发光体
-    display_fill_rect(fb, cx - 2, cy - 2, 5, 5, COLOR_WHITE);
-    fb[(cy - 3) * DISP_W + cx] = rgb565(255, 240, 150);
-    fb[(cy + 3) * DISP_W + cx] = rgb565(255, 240, 150);
-    fb[cy * DISP_W + (cx - 3)] = rgb565(255, 240, 150);
-    fb[cy * DISP_W + (cx + 3)] = rgb565(255, 240, 150);
+    // 2. 绘制星系盘面跨臂流光网格 (Cross-Arm Tidal Ribbons)
+    for (int ring = 1; ring <= 5; ring++) {
+        float r_ring = (float)ring * 20.0f;
+        int last_rx = 0, last_ry = 0;
+        int first_rx = 0, first_ry = 0;
+
+        for (int s = 0; s <= 24; s++) {
+            float a = (float)s * (2.0f * FAST_PI / 24.0f) + gal_rot * 0.5f;
+            int rx = cx + (int)(r_ring * cosf(a));
+            int ry = cy + (int)(r_ring * sinf(a) * cos_tilt);
+
+            if (s == 0) {
+                first_rx = rx;
+                first_ry = ry;
+            } else {
+                display_draw_line(fb, last_rx, last_ry, rx, ry, rgb565(0, 50, 80));
+            }
+            last_rx = rx;
+            last_ry = ry;
+        }
+        display_draw_line(fb, last_rx, last_ry, first_rx, first_ry, rgb565(0, 50, 80));
+    }
+
+    // 3. 核心超大质量银心核球 (Galactic Bulge 白热光辉与吸积光晕)
+    float pulse = sinf(anim_time * 5.0f);
+    int core_r = (int)(12.0f + pulse * 2.5f);
+    display_fill_circle(fb, cx, cy, core_r + 4, rgb565(0, 160, 240));
+    display_fill_circle(fb, cx, cy, core_r, rgb565(255, 220, 120));
+    display_fill_circle(fb, cx, cy, core_r / 2, COLOR_WHITE);
 }
 
 Effect fx_galaxy = {
     .id = "galaxy",
-    .title = "» SPIRAL GALAXY «",
-    .subtitle = "3D 银河旋涡与星云粒子潮",
+    .title = "3D银河旋涡引力臂",
+    .subtitle = "对数螺线引力密度波与超大质量星系盘",
     .init = galaxy_init,
     .update = galaxy_update,
     .render = galaxy_render,

@@ -1,33 +1,31 @@
 #include "effects.h"
 #include "fast_math.h"
 #include <string.h>
-#include <stdlib.h>
+#include <math.h>
 
-#define RADAR_R 105
-#define NUM_TARGETS 5
+#define RADAR_RINGS 5
+#define RADAR_SPOKES 16
+#define NUM_AIR_TARGETS 4
 
 typedef struct {
-    float x, y;
-    float vx, vy;
-    float alert_timer;
-    bool locked;
-} RadarTarget;
+    float x, y, z;
+    float glow;
+} AirTarget;
 
-static float sweep_angle = 0.0f;
-static float pulse_radius = 0.0f;
-static RadarTarget targets[NUM_TARGETS];
+static float sweep_rot = 0.0f;
+static float anim_time = 0.0f;
+static AirTarget air_targets[NUM_AIR_TARGETS];
 
 static void radar_init(void) {
-    sweep_angle = 0.0f;
-    pulse_radius = 0.0f;
-
-    for (int i = 0; i < NUM_TARGETS; i++) {
-        targets[i].x = ((float)(fast_rand() % 140) - 70.0f);
-        targets[i].y = ((float)(fast_rand() % 140) - 70.0f);
-        targets[i].vx = ((float)(fast_rand() % 100) - 50.0f) * 0.008f;
-        targets[i].vy = ((float)(fast_rand() % 100) - 50.0f) * 0.008f;
-        targets[i].alert_timer = 0.0f;
-        targets[i].locked = false;
+    sweep_rot = 0.0f;
+    anim_time = 0.0f;
+    for (int i = 0; i < NUM_AIR_TARGETS; i++) {
+        float a = (float)(fast_rand() % 360) * (FAST_PI / 180.0f);
+        float d = 30.0f + (float)(fast_rand() % 60);
+        air_targets[i].x = d * cosf(a);
+        air_targets[i].y = d * sinf(a);
+        air_targets[i].z = 10.0f + (float)(fast_rand() % 25);
+        air_targets[i].glow = 0.0f;
     }
 }
 
@@ -35,139 +33,99 @@ static void radar_cleanup(void) {
 }
 
 static void radar_update(float dt) {
-    (void)dt;
-    sweep_angle += 0.052f;
-    if (sweep_angle > 2.0f * FAST_PI) sweep_angle -= 2.0f * FAST_PI;
+    anim_time += dt;
+    sweep_rot += dt * 3.2f;
+    if (sweep_rot > 2.0f * FAST_PI) sweep_rot -= 2.0f * FAST_PI;
 
-    pulse_radius += 1.8f;
-    if (pulse_radius > (float)RADAR_R) pulse_radius = 0.0f;
-
-    for (int i = 0; i < NUM_TARGETS; i++) {
-        targets[i].x += targets[i].vx;
-        targets[i].y += targets[i].vy;
-
-        float dist = sqrtf(targets[i].x * targets[i].x + targets[i].y * targets[i].y);
-        if (dist > (float)(RADAR_R - 12)) {
-            targets[i].vx = -targets[i].vx;
-            targets[i].vy = -targets[i].vy;
+    for (int i = 0; i < NUM_AIR_TARGETS; i++) {
+        float t_angle = atan2f(air_targets[i].y, air_targets[i].x);
+        if (t_angle < 0.0f) t_angle += 2.0f * FAST_PI;
+        float diff = fabsf(sweep_rot - t_angle);
+        if (diff < 0.15f || diff > (2.0f * FAST_PI - 0.15f)) {
+            air_targets[i].glow = 1.0f;
+        } else if (air_targets[i].glow > 0.0f) {
+            air_targets[i].glow -= dt * 0.8f;
+            if (air_targets[i].glow < 0.0f) air_targets[i].glow = 0.0f;
         }
-
-        // 检测雷达扫描线是否扫过目标
-        float tgt_angle = atan2f(targets[i].y, targets[i].x);
-        if (tgt_angle < 0) tgt_angle += 2.0f * FAST_PI;
-
-        float diff = fabsf(sweep_angle - tgt_angle);
-        if (diff < 0.08f) {
-            targets[i].alert_timer = 1.0f;
-            targets[i].locked = (i == 1 || i == 3);
-        } else if (targets[i].alert_timer > 0.0f) {
-            targets[i].alert_timer -= 0.02f;
-            if (targets[i].alert_timer < 0.0f) targets[i].alert_timer = 0.0f;
-        }
-    }
-}
-
-static void draw_radar_circle(uint16_t *fb, int cx, int cy, int r, uint16_t color) {
-    int x = 0, y = r;
-    int d = 3 - 2 * r;
-    while (x <= y) {
-        display_draw_pixel(fb, cx + x, cy + y, color);
-        display_draw_pixel(fb, cx - x, cy + y, color);
-        display_draw_pixel(fb, cx + x, cy - y, color);
-        display_draw_pixel(fb, cx - x, cy - y, color);
-        display_draw_pixel(fb, cx + y, cy + x, color);
-        display_draw_pixel(fb, cx - y, cy + x, color);
-        display_draw_pixel(fb, cx + y, cy - x, color);
-        display_draw_pixel(fb, cx - y, cy - x, color);
-        if (d < 0) d += 4 * x + 6;
-        else { d += 4 * (x - y) + 10; y--; }
-        x++;
     }
 }
 
 static void radar_render(uint16_t *fb) {
     memset(fb, 0, DISP_W * DISP_H * sizeof(uint16_t));
+    int cx = DISP_W / 2;
+    int cy = DISP_H / 2;
 
-    const int cx = 120;
-    const int cy = 120;
+    float pitch = 0.55f; // 透视仰角
+    float cos_p = cosf(pitch);
 
-    uint16_t grid_dim = rgb565(0, 50, 30);
-    uint16_t grid_bright = rgb565(0, 160, 90);
-    uint16_t beam_col = rgb565(120, 255, 180);
+    // 1. 战术穹顶多层同心网格 (Concentric Rings)
+    for (int r = 1; r <= RADAR_RINGS; r++) {
+        float rad = (float)r * 21.0f;
+        int last_x = 0, last_y = 0;
+        int first_x = 0, first_y = 0;
 
-    // 1. 同心测距圆环 (35, 70, 105)
-    draw_radar_circle(fb, cx, cy, 35, grid_dim);
-    draw_radar_circle(fb, cx, cy, 70, grid_dim);
-    draw_radar_circle(fb, cx, cy, RADAR_R, grid_bright);
+        for (int s = 0; s <= 32; s++) {
+            float th = (float)s * (2.0f * FAST_PI / 32.0f);
+            int sx = cx + (int)(rad * cosf(th));
+            int sy = cy + (int)(rad * sinf(th) * cos_p);
 
-    // 2. 战术十字刻度瞄准基线
-    display_draw_line(fb, cx - RADAR_R, cy, cx + RADAR_R, cy, grid_dim);
-    display_draw_line(fb, cx, cy - RADAR_R, cx, cy + RADAR_R, grid_dim);
-
-    // 45 度对角虚点
-    for (int r = 10; r < RADAR_R; r += 14) {
-        int d = (int)((float)r * 0.707f);
-        display_draw_pixel(fb, cx + d, cy + d, grid_dim);
-        display_draw_pixel(fb, cx - d, cy + d, grid_dim);
-        display_draw_pixel(fb, cx + d, cy - d, grid_dim);
-        display_draw_pixel(fb, cx - d, cy - d, grid_dim);
-    }
-
-    // 3. 动态扩散脉冲声纳波
-    if (pulse_radius > 5.0f) {
-        uint8_t pulse_fade = (uint8_t)(90 * (1.0f - pulse_radius / (float)RADAR_R));
-        draw_radar_circle(fb, cx, cy, (int)pulse_radius, rgb565(0, pulse_fade, (uint8_t)(pulse_fade * 0.8f)));
-    }
-
-    // 4. 旋转扫描光束与拖尾余辉
-    for (int trail = 0; trail < 18; trail++) {
-        float a = sweep_angle - (float)trail * 0.025f;
-        int sx = cx + (int)((float)RADAR_R * fast_cos(a));
-        int sy = cy + (int)((float)RADAR_R * fast_sin(a));
-
-        if (trail == 0) {
-            // 主扫描明线
-            display_draw_line(fb, cx, cy, sx, sy, beam_col);
-        } else {
-            // 荧光余辉渐暗衰减扇区
-            uint8_t glow = (uint8_t)(140 * (18 - trail) / 18);
-            display_draw_line(fb, cx, cy, sx, sy, rgb565(0, glow, (uint8_t)(glow / 3)));
-        }
-    }
-
-    // 5. 战术目标点与锁定跟踪框
-    for (int i = 0; i < NUM_TARGETS; i++) {
-        int tx = cx + (int)targets[i].x;
-        int ty = cy + (int)targets[i].y;
-
-        if (targets[i].alert_timer > 0.05f) {
-            // 扫描扫过，明亮显现
-            if (targets[i].locked) {
-                // 红色警报敌对目标 + 方框锁定十字
-                display_draw_box(fb, tx - 6, ty - 6, 13, 13, COLOR_RED);
-                display_draw_pixel(fb, tx, ty, COLOR_WHITE);
-                display_draw_line(fb, tx - 9, ty, tx - 6, ty, COLOR_RED);
-                display_draw_line(fb, tx + 6, ty, tx + 9, ty, COLOR_RED);
-                display_draw_string(fb, tx + 8, ty - 4, "LK", COLOR_RED, COLOR_BLACK, true);
+            if (s == 0) {
+                first_x = sx;
+                first_y = sy;
             } else {
-                // 绿色友军侦测目标点 + 光圈
-                display_draw_pixel(fb, tx, ty, COLOR_WHITE);
-                draw_radar_circle(fb, tx, ty, 4, COLOR_YELLOW);
+                display_draw_line(fb, last_x, last_y, sx, sy, (r == RADAR_RINGS) ? rgb565(0, 200, 240) : rgb565(0, 80, 110));
             }
+            last_x = sx;
+            last_y = sy;
+        }
+        display_draw_line(fb, last_x, last_y, first_x, first_y, (r == RADAR_RINGS) ? rgb565(0, 200, 240) : rgb565(0, 80, 110));
+    }
+
+    // 2. 径向战术辐射经线 (Spokes)
+    for (int s = 0; s < RADAR_SPOKES; s++) {
+        float th = (float)s * (2.0f * FAST_PI / (float)RADAR_SPOKES);
+        int sx = cx + (int)(105.0f * cosf(th));
+        int sy = cy + (int)(105.0f * sinf(th) * cos_p);
+        display_draw_line(fb, cx, cy, sx, sy, (s % 4 == 0) ? rgb565(0, 150, 190) : rgb565(0, 50, 75));
+    }
+
+    // 3. 360 度高能扇形扫描光束 (带柔光拖尾)
+    for (int t = 0; t < 12; t++) {
+        float a = sweep_rot - (float)t * 0.035f;
+        int sx = cx + (int)(105.0f * cosf(a));
+        int sy = cy + (int)(105.0f * sinf(a) * cos_p);
+        uint8_t val = (uint8_t)(255 - t * 20);
+        uint16_t beam_col = (t == 0) ? COLOR_WHITE : rgb565(0, val, (uint8_t)(val * 0.75f));
+        display_draw_line(fb, cx, cy, sx, sy, beam_col);
+    }
+
+    // 4. 三维立体空中锁定目标与高度垂线 (Tactical Altitude Stems)
+    for (int i = 0; i < NUM_AIR_TARGETS; i++) {
+        int ground_x = cx + (int)air_targets[i].x;
+        int ground_y = cy + (int)(air_targets[i].y * cos_p);
+        int air_y = ground_y - (int)air_targets[i].z;
+
+        // 垂直高度指示线
+        display_draw_line(fb, ground_x, ground_y, ground_x, air_y, rgb565(0, 100, 140));
+        display_draw_pixel(fb, ground_x, ground_y, rgb565(0, 70, 90));
+
+        if (air_targets[i].glow > 0.05f) {
+            uint8_t g = (uint8_t)(air_targets[i].glow * 255.0f);
+            display_fill_circle(fb, ground_x, air_y, 3, rgb565(g, 30, 80));
+            display_draw_box(fb, ground_x - 5, air_y - 5, 11, 11, rgb565(g, g, 40));
         } else {
-            // 微弱暗影残留目标
-            display_draw_pixel(fb, tx, ty, rgb565(0, 80, 40));
+            display_draw_pixel(fb, ground_x, air_y, rgb565(0, 120, 160));
         }
     }
 
-    // 6. 中心基座指示核
-    display_fill_rect(fb, cx - 2, cy - 2, 5, 5, beam_col);
+    // 5. 核心基站指示灯
+    display_fill_circle(fb, cx, cy, 3, COLOR_WHITE);
 }
 
 Effect fx_radar = {
     .id = "radar",
-    .title = "» TACTICAL RADAR «",
-    .subtitle = "赛博全息战术雷达与目标锁定",
+    .title = "赛博全息战术雷达",
+    .subtitle = "三维透视穹顶网格与多目标空中高度态势",
     .init = radar_init,
     .update = radar_update,
     .render = radar_render,

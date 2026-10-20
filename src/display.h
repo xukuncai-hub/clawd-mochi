@@ -22,6 +22,24 @@ static inline uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
     return __builtin_bswap16(c);
 }
 
+// 快速 HSV 转 RGB565 颜色
+static inline uint16_t hsv2rgb565(uint8_t h, uint8_t s, uint8_t v) {
+    if (s == 0) return rgb565(v, v, v);
+    uint8_t region = h / 43;
+    uint8_t remainder = (h - (region * 43)) * 6;
+    uint8_t p = (v * (255 - s)) >> 8;
+    uint8_t q = (v * (255 - ((s * remainder) >> 8))) >> 8;
+    uint8_t t = (v * (255 - ((s * (255 - remainder)) >> 8))) >> 8;
+    switch (region) {
+        case 0: return rgb565(v, t, p);
+        case 1: return rgb565(q, v, p);
+        case 2: return rgb565(p, v, t);
+        case 3: return rgb565(p, q, v);
+        case 4: return rgb565(t, p, v);
+        default: return rgb565(v, p, q);
+    }
+}
+
 #define COLOR_BLACK   0x0000
 #define COLOR_WHITE   0xFFFF
 #define COLOR_RED     rgb565(255, 0, 0)
@@ -52,6 +70,9 @@ void display_draw_char(uint16_t *buf, int x, int y, char c, uint16_t fg, uint16_
 void display_draw_string(uint16_t *buf, int x, int y, const char *str, uint16_t fg, uint16_t bg, bool transparent);
 void display_draw_box(uint16_t *buf, int x, int y, int w, int h, uint16_t color);
 void display_fill_rect(uint16_t *buf, int x, int y, int w, int h, uint16_t color);
+void display_draw_circle(uint16_t *buf, int cx, int cy, int r, uint16_t color);
+void display_fill_circle(uint16_t *buf, int cx, int cy, int r, uint16_t color);
+void display_fill_round_rect(uint16_t *buf, int x, int y, int w, int h, int r, uint16_t color);
 
 // 绘制特效切换顶部/底部 OSD 悬浮提示框
 void display_draw_osd(uint16_t *buf, const char *title, const char *subtitle);

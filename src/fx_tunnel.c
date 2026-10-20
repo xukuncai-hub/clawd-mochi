@@ -1,123 +1,81 @@
 #include "effects.h"
 #include "fast_math.h"
 #include <string.h>
-#include <stdlib.h>
+#include <math.h>
 
-#define TUNNEL_W 120
-#define TUNNEL_H 120
+#define WORMHOLE_RINGS 14
+#define WORMHOLE_SECTORS 18
 
-// 采用四分之一象限对称静态查找表 (仅 7.4 KB 静态 BSS，彻底杜绝 malloc 堆内存分配失败导致的黑屏卡顿)
-static uint8_t s_dist[61][61];
-static uint8_t s_angle[61][61];
-static uint16_t tunnel_palette[256];
-static bool s_initialized = false;
-
-static float shift_z = 0.0f;
-static float shift_a = 0.0f;
+static float anim_time = 0.0f;
 
 static void tunnel_init(void) {
-    if (!s_initialized) {
-        // 预计算第一象限距离与极角表 (0 <= dx <= 60, 0 <= dy <= 60)
-        for (int dy = 0; dy <= 60; dy++) {
-            float fdy = (float)dy;
-            for (int dx = 0; dx <= 60; dx++) {
-                float fdx = (float)dx;
-                float dist = sqrtf(fdx * fdx + fdy * fdy);
-                float angle = atan2f(fdy, fdx); // 0 ~ PI/2
-
-                int d_val = (dist > 0.5f) ? (int)(1800.0f / dist) : 255;
-                if (d_val > 255) d_val = 255;
-                s_dist[dy][dx] = (uint8_t)d_val;
-
-                // 映射 [0, PI/2] 到 [0, 64]
-                int a_val = (int)((angle / (2.0f * FAST_PI)) * 256.0f);
-                if (a_val > 64) a_val = 64;
-                s_angle[dy][dx] = (uint8_t)a_val;
-            }
-        }
-
-        // 预热赛博时空流光调色板
-        for (int i = 0; i < 256; i++) {
-            float f = (float)i / 256.0f;
-            uint8_t r = (uint8_t)(128.0f + 127.0f * fast_cos(f * 2.0f * FAST_PI));
-            uint8_t g = (uint8_t)(100.0f + 100.0f * fast_sin(f * 2.0f * FAST_PI + 1.0f));
-            uint8_t b = (uint8_t)(160.0f + 95.0f * fast_sin(f * 2.0f * FAST_PI + 2.5f));
-            tunnel_palette[i] = rgb565(r, g, b);
-        }
-
-        s_initialized = true;
-    }
+    anim_time = 0.0f;
 }
 
 static void tunnel_cleanup(void) {
 }
 
 static void tunnel_update(float dt) {
-    (void)dt;
-    shift_z += 3.2f; // 光速向前冲刺
-    shift_a += 0.8f; // 空间自转
+    anim_time += dt;
 }
 
 static void tunnel_render(uint16_t *fb) {
-    uint8_t sz = (uint8_t)((int)shift_z & 255);
-    uint8_t sa = (uint8_t)((int)shift_a & 255);
+    memset(fb, 0, DISP_W * DISP_H * sizeof(uint16_t));
+    int cx = DISP_W / 2;
+    int cy = DISP_H / 2;
 
-    for (int y = 0; y < TUNNEL_H; y++) {
-        int sy = y * 2;
-        int ady = abs(y - 60);
-        if (ady > 60) ady = 60;
-        const uint8_t *d_row = s_dist[ady];
-        const uint8_t *a_row = s_angle[ady];
-        bool y_upper = (y < 60);
+    static int sx[WORMHOLE_RINGS][WORMHOLE_SECTORS];
+    static int sy[WORMHOLE_RINGS][WORMHOLE_SECTORS];
 
-        for (int x = 0; x < TUNNEL_W; x++) {
-            int adx = abs(x - 60);
-            if (adx > 60) adx = 60;
+    // 1. 计算时空虫洞经纬网格 (非线性几何级数放大)
+    for (int r = 0; r < WORMHOLE_RINGS; r++) {
+        // 动态移动深度
+        float z_offset = fmodf(anim_time * 0.65f, 1.0f / (float)WORMHOLE_RINGS);
+        float depth = ((float)(r + 1) / (float)WORMHOLE_RINGS) - z_offset;
+        if (depth < 0.05f) depth = 0.05f;
 
-            uint8_t d = d_row[adx];
-            uint8_t base_a = a_row[adx];
-            uint8_t a;
+        // 非线性幂次展开
+        float rad = powf(depth, 2.2f) * 135.0f;
+        // 随深度产生黑洞角动量自旋扭转 (Frame Dragging)
+        float twist = anim_time * 1.5f + (1.0f / depth) * 0.25f;
 
-            // 四象限极角对称展开
-            if (x >= 60) {
-                a = y_upper ? (256 - base_a) : base_a;
-            } else {
-                a = y_upper ? (128 + base_a) : (128 - base_a);
-            }
-
-            uint8_t u = (uint8_t)(d + sz);
-            uint8_t v = (uint8_t)(a + sa);
-
-            // 经典赛博黑客异或棋盘纹理 + 环状深度调制
-            bool checker = ((u & 32) ^ (v & 32)) != 0;
-            uint16_t color;
-
-            if (checker) {
-                // 亮斑：映射流光色谱
-                color = tunnel_palette[(u + v) & 255];
-            } else {
-                // 暗槽：幽蓝暗影
-                uint8_t shadow = (d > 100) ? (uint8_t)(d / 4) : 10;
-                color = rgb565(shadow / 2, shadow / 3, shadow);
-            }
-
-            // 中心奇点炽白光晕
-            if (d < 18) {
-                color = COLOR_WHITE;
-            }
-
-            int sx = x * 2;
-            uint32_t c32 = ((uint32_t)color << 16) | color;
-            *(uint32_t *)&fb[sy * DISP_W + sx] = c32;
-            *(uint32_t *)&fb[(sy + 1) * DISP_W + sx] = c32;
+        for (int s = 0; s < WORMHOLE_SECTORS; s++) {
+            float angle = twist + (float)s * (2.0f * FAST_PI / (float)WORMHOLE_SECTORS);
+            sx[r][s] = cx + (int)(rad * cosf(angle));
+            sy[r][s] = cy + (int)(rad * sinf(angle));
         }
     }
+
+    // 2. 绘制虫洞纬线同心圆环
+    for (int r = 0; r < WORMHOLE_RINGS; r++) {
+        float depth = (float)(r + 1) / (float)WORMHOLE_RINGS;
+        uint8_t hue = (uint8_t)((int)(anim_time * 30.0f + r * 14) & 0xFF);
+        uint8_t val = (uint8_t)(depth * 255.0f);
+        uint16_t col = hsv2rgb565(hue, 230, val);
+
+        for (int s = 0; s < WORMHOLE_SECTORS; s++) {
+            int next_s = (s + 1) % WORMHOLE_SECTORS;
+            display_draw_line(fb, sx[r][s], sy[r][s], sx[r][next_s], sy[r][next_s], col);
+        }
+    }
+
+    // 3. 绘制螺旋时空骨架肋骨经线 (纵深穿透向奇点收拢)
+    for (int s = 0; s < WORMHOLE_SECTORS; s++) {
+        for (int r = 0; r < WORMHOLE_RINGS - 1; r++) {
+            uint16_t rib_col = (s % 2 == 0) ? rgb565(0, 240, 255) : rgb565(255, 40, 160);
+            display_draw_line(fb, sx[r][s], sy[r][s], sx[r + 1][s], sy[r + 1][s], rib_col);
+        }
+    }
+
+    // 4. 奇点深渊能量光核
+    display_fill_circle(fb, cx, cy, 5, COLOR_WHITE);
+    display_draw_circle(fb, cx, cy, 9, rgb565(0, 220, 255));
 }
 
 Effect fx_tunnel = {
     .id = "tunnel",
-    .title = "» WARP TUNNEL VORTEX «",
-    .subtitle = "时空跃迁虫洞光速飞驰隧道",
+    .title = "赛博扭曲虫洞网格",
+    .subtitle = "非线性时空收拢螺旋经纬跃迁管道",
     .init = tunnel_init,
     .update = tunnel_update,
     .render = tunnel_render,

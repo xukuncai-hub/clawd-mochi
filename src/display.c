@@ -3,6 +3,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/spi_master.h"
@@ -185,7 +186,7 @@ void display_flush(const uint16_t *buffer) {
             .length = (size_t)chunk_bytes * 8,
             .tx_buffer = raw_buf + (size_t)y * DISP_W * 2
         };
-        spi_device_polling_transmit(spi, &t);
+        spi_device_transmit(spi, &t);
     }
 }
 
@@ -249,6 +250,62 @@ void display_draw_box(uint16_t *buf, int x, int y, int w, int h, uint16_t color)
     display_draw_line(buf, x, y + h - 1, x + w - 1, y + h - 1, color);
     display_draw_line(buf, x, y, x, y + h - 1, color);
     display_draw_line(buf, x + w - 1, y, x + w - 1, y + h - 1, color);
+}
+
+void display_draw_circle(uint16_t *buf, int cx, int cy, int r, uint16_t color) {
+    int x = 0, y = r;
+    int d = 3 - 2 * r;
+    while (x <= y) {
+        display_draw_pixel(buf, cx + x, cy + y, color);
+        display_draw_pixel(buf, cx - x, cy + y, color);
+        display_draw_pixel(buf, cx + x, cy - y, color);
+        display_draw_pixel(buf, cx - x, cy - y, color);
+        display_draw_pixel(buf, cx + y, cy + x, color);
+        display_draw_pixel(buf, cx - y, cy + x, color);
+        display_draw_pixel(buf, cx + y, cy - x, color);
+        display_draw_pixel(buf, cx - y, cy - x, color);
+        if (d < 0) {
+            d += 4 * x + 6;
+        } else {
+            d += 4 * (x - y) + 10;
+            y--;
+        }
+        x++;
+    }
+}
+
+void display_fill_circle(uint16_t *buf, int cx, int cy, int r, uint16_t color) {
+    if (r <= 0) return;
+    int r2 = r * r;
+    for (int dy = -r; dy <= r; dy++) {
+        int py = cy + dy;
+        if (py < 0 || py >= DISP_H) continue;
+        int dx_max = (int)sqrtf((float)(r2 - dy * dy));
+        int x0 = cx - dx_max;
+        int x1 = cx + dx_max;
+        if (x0 < 0) x0 = 0;
+        if (x1 >= DISP_W) x1 = DISP_W - 1;
+        uint16_t *row = &buf[py * DISP_W];
+        for (int px = x0; px <= x1; px++) {
+            row[px] = color;
+        }
+    }
+}
+
+void display_fill_round_rect(uint16_t *buf, int x, int y, int w, int h, int r, uint16_t color) {
+    if (r <= 0) {
+        display_fill_rect(buf, x, y, w, h, color);
+        return;
+    }
+    if (r > w / 2) r = w / 2;
+    if (r > h / 2) r = h / 2;
+    display_fill_rect(buf, x + r, y, w - 2 * r, h, color);
+    display_fill_rect(buf, x, y + r, r, h - 2 * r, color);
+    display_fill_rect(buf, x + w - r, y + r, r, h - 2 * r, color);
+    display_fill_circle(buf, x + r, y + r, r, color);
+    display_fill_circle(buf, x + w - r - 1, y + r, r, color);
+    display_fill_circle(buf, x + r, y + h - r - 1, r, color);
+    display_fill_circle(buf, x + w - r - 1, y + h - r - 1, r, color);
 }
 
 void display_draw_osd(uint16_t *buf, const char *title, const char *subtitle) {

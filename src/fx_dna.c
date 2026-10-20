@@ -1,117 +1,107 @@
 #include "effects.h"
 #include "fast_math.h"
 #include <string.h>
-#include <stdlib.h>
+#include <math.h>
 
-#define NUM_DNA_NODES 28
-#define NUM_DNA_SPARKS 40
+#define DNA_NODES 28
 
-typedef struct {
-    float x, y, z;
-    float speed;
-} DnaSpark;
-
-static float dna_rot = 0.0f;
-static DnaSpark sparks[NUM_DNA_SPARKS];
+static float anim_time = 0.0f;
+static float rot_angle = 0.0f;
 
 static void dna_init(void) {
-    dna_rot = 0.0f;
-    for (int i = 0; i < NUM_DNA_SPARKS; i++) {
-        sparks[i].x = (float)fast_rand_range(-100, 100);
-        sparks[i].y = (float)fast_rand_range(-110, 110);
-        sparks[i].z = (float)fast_rand_range(-100, 100);
-        sparks[i].speed = 0.5f + (float)(fast_rand() % 100) / 100.0f;
-    }
+    anim_time = 0.0f;
+    rot_angle = 0.0f;
 }
 
 static void dna_cleanup(void) {
 }
 
 static void dna_update(float dt) {
-    (void)dt;
-    dna_rot += 0.042f;
-    if (dna_rot > 2.0f * FAST_PI) dna_rot -= 2.0f * FAST_PI;
-
-    for (int i = 0; i < NUM_DNA_SPARKS; i++) {
-        sparks[i].y -= sparks[i].speed;
-        if (sparks[i].y < -115.0f) {
-            sparks[i].y = 115.0f;
-            sparks[i].x = (float)fast_rand_range(-100, 100);
-            sparks[i].z = (float)fast_rand_range(-100, 100);
-        }
-    }
-}
-
-static void project_dna_pt(float x, float y, float z, int *sx, int *sy, float *scale) {
-    float cam_dist = 220.0f;
-    float pz = z + cam_dist;
-    if (pz < 10.0f) pz = 10.0f;
-    *scale = 160.0f / pz;
-    *sx = 120 + (int)(x * (*scale));
-    *sy = 120 + (int)(y * (*scale));
+    anim_time += dt;
+    rot_angle += dt * 1.6f;
 }
 
 static void dna_render(uint16_t *fb) {
     memset(fb, 0, DISP_W * DISP_H * sizeof(uint16_t));
+    int cx = DISP_W / 2;
 
-    // 1. 渲染周围漂浮的量子微粒
-    for (int i = 0; i < NUM_DNA_SPARKS; i++) {
-        int sx, sy;
-        float sc;
-        project_dna_pt(sparks[i].x, sparks[i].y, sparks[i].z, &sx, &sy, &sc);
-        if (sx >= 0 && sx < DISP_W && sy >= 0 && sy < DISP_H) {
-            uint16_t sc_color = (sparks[i].z > 0) ? rgb565(120, 200, 255) : rgb565(40, 70, 120);
-            display_draw_pixel(fb, sx, sy, sc_color);
-        }
+    static int ax[DNA_NODES], ay[DNA_NODES];
+    static float az[DNA_NODES];
+    static int bx[DNA_NODES], by[DNA_NODES];
+    static float bz[DNA_NODES];
+
+    float y_spacing = (float)(DISP_H + 20) / (float)(DNA_NODES - 1);
+    float helix_r = 54.0f;
+
+    // 1. 计算三维连续双螺旋骨架节点
+    for (int i = 0; i < DNA_NODES; i++) {
+        float y_pos = -10.0f + (float)i * y_spacing;
+        float phase = (float)i * 0.32f + rot_angle;
+
+        float x1 = helix_r * cosf(phase);
+        float z1 = helix_r * sinf(phase);
+
+        float x2 = helix_r * cosf(phase + FAST_PI);
+        float z2 = helix_r * sinf(phase + FAST_PI);
+
+        // 弱透视
+        float fov = 180.0f;
+        float scale1 = fov / (fov + z1);
+        float scale2 = fov / (fov + z2);
+
+        ax[i] = cx + (int)(x1 * scale1);
+        ay[i] = (int)y_pos;
+        az[i] = z1;
+
+        bx[i] = cx + (int)(x2 * scale2);
+        by[i] = (int)y_pos;
+        bz[i] = z2;
     }
 
-    // 2. 渲染 3D DNA 双螺旋链
-    const float radius = 55.0f;
-
-    for (int i = 0; i < NUM_DNA_NODES; i++) {
-        float norm_y = (float)i / (float)(NUM_DNA_NODES - 1);
-        float py = (norm_y - 0.5f) * 210.0f;
-        float angle = norm_y * 4.5f * FAST_PI + dna_rot;
-
-        // 链 A 坐标
-        float ax = radius * fast_cos(angle);
-        float az = radius * fast_sin(angle);
-        int asx, asy;
-        float asc;
-        project_dna_pt(ax, py, az, &asx, &asy, &asc);
-
-        // 链 B 坐标 (相隔 180 度)
-        float bx = radius * fast_cos(angle + FAST_PI);
-        float bz = radius * fast_sin(angle + FAST_PI);
-        int bsx, bsy;
-        float bsc;
-        project_dna_pt(bx, py, bz, &bsx, &bsy, &bsc);
-
-        // 绘制碱基对横梁阶梯 (颜色交替：A-T 与 C-G)
+    // 2. 绘制碱基对高能连杆横梁 (Base Pairs)
+    for (int i = 0; i < DNA_NODES; i++) {
+        float avg_z = (az[i] + bz[i]) * 0.5f;
         uint16_t rung_col;
-        if (i % 2 == 0) {
-            rung_col = rgb565(0, 240, 220); // 荧光青
-        } else {
-            rung_col = rgb565(255, 60, 180); // 荧光粉红
+        int type = (i / 2) % 4;
+        if (type == 0) rung_col = rgb565(0, 240, 255);      // 腺嘌呤 A - 青
+        else if (type == 1) rung_col = rgb565(255, 50, 140); // 胸腺嘧啶 T - 粉
+        else if (type == 2) rung_col = rgb565(255, 230, 40); // 鸟嘌呤 G - 金
+        else rung_col = rgb565(0, 255, 130);                // 胞嘧啶 C - 翠绿
+
+        display_draw_line(fb, ax[i], ay[i], bx[i], by[i], rung_col);
+
+        // 核心氢键连接点
+        int mid_x = (ax[i] + bx[i]) / 2;
+        int mid_y = (ay[i] + by[i]) / 2;
+        display_fill_circle(fb, mid_x, mid_y, 2, COLOR_WHITE);
+    }
+
+    // 3. 绘制两条连续流光骨架带 (Strand A & Strand B)
+    for (int i = 0; i < DNA_NODES - 1; i++) {
+        // 链 A
+        uint16_t col_a = (az[i] > 0) ? rgb565(0, 240, 255) : rgb565(0, 70, 110);
+        display_draw_line(fb, ax[i], ay[i], ax[i + 1], ay[i + 1], col_a);
+        display_draw_line(fb, ax[i] + 1, ay[i], ax[i + 1] + 1, ay[i + 1], col_a);
+
+        // 链 B
+        uint16_t col_b = (bz[i] > 0) ? rgb565(255, 60, 180) : rgb565(90, 10, 60);
+        display_draw_line(fb, bx[i], by[i], bx[i + 1], by[i + 1], col_b);
+        display_draw_line(fb, bx[i] + 1, by[i], bx[i + 1] + 1, by[i + 1], col_b);
+
+        // 正面高亮磷酸基团圆球
+        if (az[i] > 10.0f) {
+            display_fill_circle(fb, ax[i], ay[i], 3, COLOR_WHITE);
         }
-        display_draw_line(fb, asx, asy, bsx, bsy, rung_col);
-
-        // 绘制链 A 螺旋节点球 (带深度远近尺寸)
-        int rad_a = (az > 0) ? 3 : 2;
-        uint16_t col_a = (az > 0) ? COLOR_WHITE : rgb565(40, 140, 255);
-        display_fill_rect(fb, asx - rad_a / 2, asy - rad_a / 2, rad_a, rad_a, col_a);
-
-        // 绘制链 B 螺旋节点球
-        int rad_b = (bz > 0) ? 3 : 2;
-        uint16_t col_b = (bz > 0) ? COLOR_YELLOW : rgb565(200, 40, 100);
-        display_fill_rect(fb, bsx - rad_b / 2, bsy - rad_b / 2, rad_b, rad_b, col_b);
+        if (bz[i] > 10.0f) {
+            display_fill_circle(fb, bx[i], by[i], 3, COLOR_WHITE);
+        }
     }
 }
 
 Effect fx_dna = {
     .id = "dna",
-    .title = "» 3D DNA HELIX «",
-    .subtitle = "3D 炫彩旋转 DNA 双螺旋粒子链",
+    .title = "3D全息立体双螺旋DNA",
+    .subtitle = "连续空间编织骨架带与碱基对光桥",
     .init = dna_init,
     .update = dna_update,
     .render = dna_render,
